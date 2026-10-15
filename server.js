@@ -3,6 +3,7 @@ const express = require("express");
 const session = require("express-session");
 const fs = require("fs");
 const path = require("path");
+const { Pool } = require("pg");
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -41,6 +42,23 @@ app.use(
     }
   })
 );
+
+// Conexão com o banco PostgreSQL do Neon.
+const pool = process.env.DATABASE_URL
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: {
+        rejectUnauthorized: false
+      },
+      connectionTimeoutMillis: 10000
+    })
+  : null;
+
+if (pool) {
+  pool.on("error", (erro) => {
+    console.error("Erro inesperado no pool do Neon:", erro.message);
+  });
+}
 
 // Cria as pastas e os JSONs iniciais quando necessário.
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -115,7 +133,7 @@ app.use(
   })
 );
 
-// Teste de funcionamento.
+// Teste de funcionamento do servidor.
 app.get("/api/health", (req, res) => {
   res.json({
     status: "online",
@@ -125,12 +143,44 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+// Teste real da conexão com o Neon.
+app.get("/api/teste-neon", async (req, res) => {
+  if (!pool) {
+    return res.status(503).json({
+      conectado: false,
+      mensagem: "A variável DATABASE_URL não está configurada."
+    });
+  }
+
+  try {
+    const resultado = await pool.query(
+      "SELECT NOW() AS horario, current_database() AS banco"
+    );
+
+    return res.json({
+      conectado: true,
+      mensagem: "Conexão com o Neon funcionando!",
+      banco: resultado.rows[0].banco,
+      horario: resultado.rows[0].horario
+    });
+  } catch (erro) {
+    console.error("Erro na conexão com o Neon:", erro.message);
+
+    return res.status(500).json({
+      conectado: false,
+      mensagem: "Não foi possível conectar ao Neon. Verifique a configuração da conexão."
+    });
+  }
+});
+
 // Lista pública da programação.
+// Nesta etapa, continua usando o arquivo JSON.
 app.get("/api/programacao", (req, res) => {
   try {
     res.json(lerJSON(PROGRAMACAO_FILE));
   } catch (erro) {
     console.error("Erro ao ler programação:", erro);
+
     res.status(500).json({
       erro: "Não foi possível carregar a programação."
     });
@@ -138,11 +188,13 @@ app.get("/api/programacao", (req, res) => {
 });
 
 // Lista pública de programas.
+// Nesta etapa, continua usando o arquivo JSON.
 app.get("/api/programas", (req, res) => {
   try {
     res.json(lerJSON(PROGRAMAS_FILE));
   } catch (erro) {
     console.error("Erro ao ler programas:", erro);
+
     res.status(500).json({
       erro: "Não foi possível carregar os programas."
     });
@@ -335,6 +387,20 @@ app.use((erro, req, res, next) => {
 });
 
 // Inicia o servidor na porta fornecida pelo ambiente.
-app.listen(PORT, "0.0.0.0", () => {
+const servidor = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Amazon Voices Radio disponível na porta ${PORT}`);
 });
+
+// Encerra o pool de conexões ao desligar o servidor.
+function encerrarServidor() {
+  servidor.close(() => {
+    if (pool) {
+      pool.end().finally(() => process.exit(0));
+    } else {
+      process.exit(0);
+    }
+  });
+}
+
+process.on("SIGTERM", encerrarServidor);
+process.on("SIGINT", encerrarServidor);
