@@ -1,20 +1,14 @@
 
 const express = require("express");
 const session = require("express-session");
-const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { Pool } = require("pg");
 
 const app = express();
 const PORT = process.env.PORT || 10000;
-
-const DATA_DIR = path.join(__dirname, "data");
 const PUBLIC_DIR = path.join(__dirname, "public");
 
-const PROGRAMACAO_FILE = path.join(DATA_DIR, "programacao.json");
-const PROGRAMAS_FILE = path.join(DATA_DIR, "programas.json");
-
-// Exige variáveis de ambiente para proteger a área administrativa.
 if (!process.env.SESSION_SECRET || !process.env.ADMIN_PASSWORD) {
   console.error(
     "Configure SESSION_SECRET e ADMIN_PASSWORD nas variáveis de ambiente."
@@ -22,9 +16,13 @@ if (!process.env.SESSION_SECRET || !process.env.ADMIN_PASSWORD) {
   process.exit(1);
 }
 
+if (!process.env.DATABASE_URL) {
+  console.error("Configure DATABASE_URL com a conexão do Neon.");
+  process.exit(1);
+}
+
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
-
 app.use(express.json({ limit: "100kb" }));
 app.use(express.urlencoded({ extended: false }));
 
@@ -43,67 +41,25 @@ app.use(
   })
 );
 
-// Conexão com o banco PostgreSQL do Neon.
-const pool = process.env.DATABASE_URL
-  ? new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: {
-        rejectUnauthorized: false
-      },
-      connectionTimeoutMillis: 10000
-    })
-  : null;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+  connectionTimeoutMillis: 10000
+});
 
-if (pool) {
-  pool.on("error", (erro) => {
-    console.error("Erro inesperado no pool do Neon:", erro.message);
-  });
-}
-
-// Cria as pastas e os JSONs iniciais quando necessário.
-fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.mkdirSync(PUBLIC_DIR, { recursive: true });
-
-function prepararArquivo(arquivo, conteudoInicial) {
-  if (!fs.existsSync(arquivo)) {
-    fs.writeFileSync(
-      arquivo,
-      JSON.stringify(conteudoInicial, null, 2),
-      "utf8"
-    );
-  }
-}
-
-prepararArquivo(PROGRAMACAO_FILE, []);
-prepararArquivo(PROGRAMAS_FILE, []);
-
-function lerJSON(arquivo) {
-  return JSON.parse(fs.readFileSync(arquivo, "utf8"));
-}
-
-function salvarJSON(arquivo, dados) {
-  const temporario = arquivo + ".tmp";
-
-  fs.writeFileSync(
-    temporario,
-    JSON.stringify(dados, null, 2),
-    "utf8"
-  );
-
-  fs.renameSync(temporario, arquivo);
-}
+pool.on("error", (err) => {
+  console.error("Erro inesperado no Neon:", err.message);
+});
 
 function exigirAdmin(req, res, next) {
-  if (req.session && req.session.admin === true) {
-    return next();
-  }
+  if (req.session?.admin === true) return next();
 
   return res.status(401).json({
     erro: "Acesso administrativo necessário."
   });
 }
 
-function textoValido(valor, limite = 200) {
+function texto(valor, limite = 200) {
   return (
     typeof valor === "string" &&
     valor.trim().length > 0 &&
@@ -111,12 +67,69 @@ function textoValido(valor, limite = 200) {
   );
 }
 
-// Página principal da rádio.
+function horarioValido(valor) {
+  return typeof valor === "string" &&
+    /^([01]\d|2[0-3]):[0-5]\d$/.test(valor);
+}
+
+function urlAudioValida(valor) {
+  if (!valor) return true;
+
+  if (typeof valor !== "string" || valor.length > 1000) {
+    return false;
+  }
+
+  if (valor.startsWith("/") && !valor.startsWith("//")) {
+    return true;
+  }
+
+  try {
+    return new URL(valor).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+// Prepara colunas adicionais para manter compatibilidade com o painel.
+// As tabelas principais já foram criadas no Neon.
+async function prepararBanco() {
+  await pool.query(`
+    ALTER TABLE programas
+      ADD COLUMN IF NOT EXISTS codigo_externo TEXT,
+      ADD COLUMN IF NOT EXISTS idioma VARCHAR(50);
+
+    ALTER TABLE programacao
+      ADD COLUMN IF NOT EXISTS codigo_externo TEXT;
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS
+      idx_programas_codigo_externo
+      ON programas (codigo_externo)
+      WHERE codigo_externo IS NOT NULL;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS
+      idx_programacao_codigo_externo
+      ON programacao (codigo_externo)
+      WHERE codigo_externo IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS
+      idx_programacao_horarios
+      ON programacao (dia_semana, horario_inicio);
+
+    CREATE INDEX IF NOT EXISTS
+      idx_programacao_programa
+      ON programacao (programa_id);
+  `);
+
+  console.log("Estrutura do Neon conferida.");
+}
+
+// Páginas
 app.get("/", (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, "index.html"));
 });
 
-// Painel administrativo.
 app.get("/admin", (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, "admin.html"));
 });
@@ -125,15 +138,12 @@ app.get("/admin.html", (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, "admin.html"));
 });
 
-// Publica os arquivos HTML, CSS e JavaScript.
-app.use(
-  express.static(PUBLIC_DIR, {
-    index: false,
-    dotfiles: "deny"
-  })
-);
+app.use(express.static(PUBLIC_DIR, {
+  index: false,
+  dotfiles: "deny"
+}));
 
-// Teste de funcionamento do servidor.
+// Estado do servidor
 app.get("/api/health", (req, res) => {
   res.json({
     status: "online",
@@ -143,65 +153,99 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// Teste real da conexão com o Neon.
-app.get("/api/teste-neon", async (req, res) => {
-  if (!pool) {
-    return res.status(503).json({
-      conectado: false,
-      mensagem: "A variável DATABASE_URL não está configurada."
-    });
-  }
-
+// Teste da conexão real com o Neon
+app.get("/api/teste-neon", async (req, res, next) => {
   try {
-    const resultado = await pool.query(
-      "SELECT NOW() AS horario, current_database() AS banco"
-    );
+    const resultado = await pool.query(`
+      SELECT
+        NOW() AS horario,
+        current_database() AS banco
+    `);
 
-    return res.json({
+    res.json({
       conectado: true,
       mensagem: "Conexão com o Neon funcionando!",
       banco: resultado.rows[0].banco,
       horario: resultado.rows[0].horario
     });
-  } catch (erro) {
-    console.error("Erro na conexão com o Neon:", erro.message);
-
-    return res.status(500).json({
-      conectado: false,
-      mensagem: "Não foi possível conectar ao Neon. Verifique a configuração da conexão."
-    });
+  } catch (err) {
+    next(err);
   }
 });
 
-// Lista pública da programação.
-// Nesta etapa, continua usando o arquivo JSON.
-app.get("/api/programacao", (req, res) => {
+// Lista de programas
+app.get("/api/programas", async (req, res, next) => {
   try {
-    res.json(lerJSON(PROGRAMACAO_FILE));
-  } catch (erro) {
-    console.error("Erro ao ler programação:", erro);
+    const resultado = await pool.query(`
+      SELECT
+        id,
+        COALESCE(codigo_externo, id::text) AS codigo,
+        nome,
+        idioma,
+        descricao,
+        url_audio,
+        ativo,
+        criado_em
+      FROM programas
+      ORDER BY nome
+    `);
 
-    res.status(500).json({
-      erro: "Não foi possível carregar a programação."
-    });
+    res.json(resultado.rows.map((p) => ({
+      id: p.codigo,
+      titulo: p.nome,
+      nome: p.nome,
+      idioma: p.idioma || "",
+      descricao: p.descricao || "",
+      audioUrl: p.url_audio || "",
+      url_audio: p.url_audio || "",
+      url: p.url_audio || "",
+      ativo: p.ativo,
+      criadoEm: p.criado_em
+    })));
+  } catch (err) {
+    next(err);
   }
 });
 
-// Lista pública de programas.
-// Nesta etapa, continua usando o arquivo JSON.
-app.get("/api/programas", (req, res) => {
+// Lista de horários da programação
+app.get("/api/programacao", async (req, res, next) => {
   try {
-    res.json(lerJSON(PROGRAMAS_FILE));
-  } catch (erro) {
-    console.error("Erro ao ler programas:", erro);
+    const resultado = await pool.query(`
+      SELECT
+        pg.id,
+        COALESCE(pg.codigo_externo, pg.id::text) AS codigo,
+        COALESCE(p.codigo_externo, p.id::text) AS programa_codigo,
+        pg.dia_semana,
+        pg.horario_inicio,
+        pg.horario_fim,
+        pg.descricao,
+        pg.ativo
+      FROM programacao pg
+      JOIN programas p ON p.id = pg.programa_id
+      ORDER BY pg.dia_semana NULLS FIRST, pg.horario_inicio
+    `);
 
-    res.status(500).json({
-      erro: "Não foi possível carregar os programas."
-    });
+    res.json(resultado.rows.map((h) => {
+      const inicio = String(h.horario_inicio).slice(0, 5);
+      const fim = String(h.horario_fim).slice(0, 5);
+
+      return {
+        id: h.codigo,
+        programaId: h.programa_codigo,
+        diaSemana: h.dia_semana,
+        horario: inicio,
+        inicio,
+        fim,
+        descricao: h.descricao || "",
+        ativo: h.ativo
+      };
+    }));
+  } catch (err) {
+    next(err);
   }
 });
 
-// Login administrativo.
+// Login administrativo
 app.post("/api/admin/login", (req, res, next) => {
   const { senha } = req.body || {};
 
@@ -210,18 +254,16 @@ app.post("/api/admin/login", (req, res, next) => {
     senha.length > 1024 ||
     senha !== process.env.ADMIN_PASSWORD
   ) {
-    return res.status(401).json({
-      erro: "Senha incorreta."
-    });
+    return res.status(401).json({ erro: "Senha incorreta." });
   }
 
-  req.session.regenerate((erro) => {
-    if (erro) return next(erro);
+  req.session.regenerate((err) => {
+    if (err) return next(err);
 
     req.session.admin = true;
 
-    req.session.save((erroSalvar) => {
-      if (erroSalvar) return next(erroSalvar);
+    req.session.save((saveErr) => {
+      if (saveErr) return next(saveErr);
 
       res.json({
         sucesso: true,
@@ -231,32 +273,97 @@ app.post("/api/admin/login", (req, res, next) => {
   });
 });
 
-// Consulta o estado da sessão.
 app.get("/api/admin/sessao", (req, res) => {
   res.json({
     autenticado: req.session?.admin === true
   });
 });
 
-// Encerra a sessão.
 app.post("/api/admin/logout", exigirAdmin, (req, res, next) => {
-  req.session.destroy((erro) => {
-    if (erro) return next(erro);
+  req.session.destroy((err) => {
+    if (err) return next(err);
 
     res.clearCookie("amvoices.sid");
-
     res.json({ sucesso: true });
   });
 });
 
-// Salva a lista completa de horários.
+// Cadastro de programa: aceita campos do painel atual e do anterior.
+app.post("/api/admin/programas", exigirAdmin, async (req, res, next) => {
+  try {
+    const dados = req.body || {};
+
+    const nome = dados.titulo ?? dados.nome;
+    const idioma = dados.idioma || "Português";
+    const descricao = dados.descricao || "";
+    const audio = dados.audioUrl ?? dados.url_audio ??
+      dados.url ?? dados.audio ?? "";
+
+    const codigo = texto(dados.id, 100)
+      ? dados.id.trim()
+      : crypto.randomUUID();
+
+    if (
+      !texto(nome, 150) ||
+      !texto(idioma, 50) ||
+      typeof descricao !== "string" ||
+      descricao.length > 500 ||
+      !urlAudioValida(audio)
+    ) {
+      return res.status(400).json({
+        erro: "Confira o nome, idioma, descrição e endereço do áudio."
+      });
+    }
+
+    const resultado = await pool.query(`
+      INSERT INTO programas
+        (codigo_externo, nome, idioma, descricao, url_audio, ativo)
+      VALUES ($1, $2, $3, $4, $5, TRUE)
+      RETURNING
+        id, codigo_externo, nome, idioma, descricao, url_audio, ativo
+    `, [
+      codigo,
+      nome.trim(),
+      idioma.trim(),
+      descricao.trim(),
+      audio.trim()
+    ]);
+
+    const p = resultado.rows[0];
+
+    res.status(201).json({
+      sucesso: true,
+      programa: {
+        id: p.codigo_externo || String(p.id),
+        titulo: p.nome,
+        nome: p.nome,
+        idioma: p.idioma,
+        descricao: p.descricao,
+        audioUrl: p.url_audio,
+        url: p.url_audio,
+        ativo: p.ativo
+      }
+    });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({
+        erro: "Já existe um programa com esse identificador."
+      });
+    }
+
+    next(err);
+  }
+});
+
+// Salva a programação completa em uma transação.
+// Aceita "horario" ou "inicio", e "fim" opcional.
 app.put(
   "/api/admin/programacao",
   exigirAdmin,
-  (req, res) => {
-    const programacao = req.body;
+  async (req, res, next) => {
+    const lista = req.body;
 
-    if (!Array.isArray(programacao) || programacao.length > 500) {
+    if (!Array.isArray(lista) || lista.length > 500) {
       return res.status(400).json({
         erro: "Envie uma lista válida de até 500 horários."
       });
@@ -264,143 +371,166 @@ app.put(
 
     const ids = new Set();
 
-    for (const item of programacao) {
+    for (const item of lista) {
+      const inicio = item?.inicio ?? item?.horario;
+      const fim = item?.fim;
+
       if (
         !item ||
-        !textoValido(item.id, 100) ||
-        !textoValido(item.programaId, 100) ||
-        !/^([01]\d|2[0-3]):[0-5]\d$/.test(item.horario || "") ||
-        typeof item.ativo !== "boolean" ||
-        ids.has(item.id)
+        !texto(item.programaId, 100) ||
+        (item.id !== undefined && !texto(item.id, 100)) ||
+        !horarioValido(inicio) ||
+        (fim !== undefined && !horarioValido(fim)) ||
+        (item.ativo !== undefined && typeof item.ativo !== "boolean") ||
+        (item.diaSemana !== undefined &&
+          item.diaSemana !== null &&
+          (!Number.isInteger(item.diaSemana) ||
+            item.diaSemana < 0 ||
+            item.diaSemana > 6)) ||
+        (item.id && ids.has(item.id))
       ) {
         return res.status(400).json({
-          erro: "Há um horário inválido ou um identificador duplicado."
+          erro: "Há um horário inválido ou identificador duplicado."
         });
       }
 
-      ids.add(item.id);
+      if (item.id) ids.add(item.id);
     }
 
+    const client = await pool.connect();
+
     try {
-      salvarJSON(PROGRAMACAO_FILE, programacao);
+      await client.query("BEGIN");
+
+      // Resolve todos os programas antes de substituir a programação.
+      const horariosResolvidos = [];
+
+      for (const item of lista) {
+        const codigoPrograma = String(item.programaId);
+
+        const programa = await client.query(`
+          SELECT id
+          FROM programas
+          WHERE codigo_externo = $1 OR id::text = $1
+          LIMIT 1
+        `, [codigoPrograma]);
+
+        if (programa.rowCount === 0) {
+          throw Object.assign(
+            new Error("Programa não encontrado: " + codigoPrograma),
+            { status: 400 }
+          );
+        }
+
+        const inicio = item.inicio ?? item.horario;
+
+        // Compatibilidade com horários antigos que só informavam início:
+        // considera uma duração de uma hora, com virada de dia se necessário.
+        let fim = item.fim;
+
+        if (!fim) {
+          const [h, m] = inicio.split(":").map(Number);
+          const minutos = (h * 60 + m + 60) % (24 * 60);
+          fim = String(Math.floor(minutos / 60)).padStart(2, "0") +
+            ":" +
+            String(minutos % 60).padStart(2, "0");
+        }
+
+        if (inicio === fim) {
+          throw Object.assign(
+            new Error("O início e o fim do horário não podem ser iguais."),
+            { status: 400 }
+          );
+        }
+
+        horariosResolvidos.push({
+          codigo: texto(item.id, 100) ? item.id.trim() : crypto.randomUUID(),
+          programaId: programa.rows[0].id,
+          diaSemana: item.diaSemana ?? null,
+          inicio,
+          fim,
+          descricao: typeof item.descricao === "string"
+            ? item.descricao.slice(0, 500)
+            : "",
+          ativo: item.ativo !== false
+        });
+      }
+
+      await client.query("DELETE FROM programacao");
+
+      for (const h of horariosResolvidos) {
+        await client.query(`
+          INSERT INTO programacao
+            (
+              codigo_externo, programa_id, dia_semana,
+              horario_inicio, horario_fim, descricao, ativo
+            )
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, [
+          h.codigo,
+          h.programaId,
+          h.diaSemana,
+          h.inicio,
+          h.fim,
+          h.descricao,
+          h.ativo
+        ]);
+      }
+
+      await client.query("COMMIT");
 
       res.json({
         sucesso: true,
-        total: programacao.length
+        total: horariosResolvidos.length
       });
-    } catch (erro) {
-      console.error("Erro ao salvar programação:", erro);
+    } catch (err) {
+      await client.query("ROLLBACK");
 
-      res.status(500).json({
-        erro: "Não foi possível salvar a programação."
-      });
-    }
-  }
-);
-
-// Cadastra um novo programa.
-app.post(
-  "/api/admin/programas",
-  exigirAdmin,
-  (req, res) => {
-    const {
-      id,
-      titulo,
-      idioma,
-      descricao,
-      audioUrl
-    } = req.body || {};
-
-    if (
-      !textoValido(id, 100) ||
-      !textoValido(titulo, 150) ||
-      !textoValido(idioma, 50) ||
-      !textoValido(descricao, 500) ||
-      (
-        audioUrl !== undefined &&
-        (typeof audioUrl !== "string" || audioUrl.length > 1000)
-      )
-    ) {
-      return res.status(400).json({
-        erro: "Confira os dados do programa."
-      });
-    }
-
-    // Aceita caminhos locais ou URLs HTTPS.
-    if (
-      audioUrl &&
-      !audioUrl.startsWith("/") &&
-      !/^https:\/\/\S+$/i.test(audioUrl)
-    ) {
-      return res.status(400).json({
-        erro: "O áudio precisa ser um caminho local ou uma URL HTTPS."
-      });
-    }
-
-    try {
-      const programas = lerJSON(PROGRAMAS_FILE);
-      const novoId = id.trim();
-
-      if (programas.some((programa) => programa.id === novoId)) {
-        return res.status(409).json({
-          erro: "Já existe um programa com esse identificador."
-        });
+      if (err.status === 400) {
+        return res.status(400).json({ erro: err.message });
       }
 
-      const novoPrograma = {
-        id: novoId,
-        titulo: titulo.trim(),
-        idioma: idioma.trim(),
-        descricao: descricao.trim(),
-        audioUrl: audioUrl ? audioUrl.trim() : "",
-        criadoEm: new Date().toISOString()
-      };
-
-      programas.push(novoPrograma);
-      salvarJSON(PROGRAMAS_FILE, programas);
-
-      res.status(201).json({
-        sucesso: true,
-        programa: novoPrograma
-      });
-    } catch (erro) {
-      console.error("Erro ao cadastrar programa:", erro);
-
-      res.status(500).json({
-        erro: "Não foi possível cadastrar o programa."
-      });
+      next(err);
+    } finally {
+      client.release();
     }
   }
 );
 
-// Tratamento de erros inesperados.
-app.use((erro, req, res, next) => {
-  console.error(erro);
+// Erros gerais
+app.use((err, req, res, next) => {
+  console.error("Erro na aplicação:", err.message);
 
-  if (res.headersSent) {
-    return next(erro);
+  if (res.headersSent) return next(err);
+
+  res.status(err.status || 500).json({
+    erro: err.status === 400
+      ? err.message
+      : "Ocorreu um erro interno no servidor."
+  });
+});
+
+async function iniciar() {
+  try {
+    await prepararBanco();
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(
+        `Amazon Voices Radio disponível na porta ${PORT}`
+      );
+    });
+  } catch (err) {
+    console.error("Não foi possível preparar o banco:", err.message);
+    process.exit(1);
   }
-
-  res.status(500).json({
-    erro: "Ocorreu um erro interno no servidor."
-  });
-});
-
-// Inicia o servidor na porta fornecida pelo ambiente.
-const servidor = app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Amazon Voices Radio disponível na porta ${PORT}`);
-});
-
-// Encerra o pool de conexões ao desligar o servidor.
-function encerrarServidor() {
-  servidor.close(() => {
-    if (pool) {
-      pool.end().finally(() => process.exit(0));
-    } else {
-      process.exit(0);
-    }
-  });
 }
 
-process.on("SIGTERM", encerrarServidor);
-process.on("SIGINT", encerrarServidor);
+iniciar();
+
+async function encerrar() {
+  await pool.end();
+  process.exit(0);
+}
+
+process.on("SIGTERM", encerrar);
+process.on("SIGINT", encerrar);
