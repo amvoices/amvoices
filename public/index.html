@@ -1,0 +1,144 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <meta name="theme-color" content="#101827">
+    <meta name="description"
+          content="Amazon Voices Radio — Many Voices, One Connection.">
+
+    <title>Amazon Voices Radio</title>
+
+    <link rel="stylesheet" href="./style.css">
+<script src="./script.js" defer></script>
+</head>
+
+<body>
+    <header class="cabecalho">
+        <a href="/" class="marca" aria-label="Amazon Voices Radio - início">
+            <span class="marca-icone" aria-hidden="true">♫</span>
+            <span class="marca-texto">
+                <strong>AMAZON VOICES</strong>
+                <small>RADIO · MANY VOICES, ONE CONNECTION</small>
+            </span>
+        </a>
+
+        <span class="status-radio">
+            <span class="status-ponto"></span>
+            RÁDIO ONLINE
+        </span>
+    </header>
+
+    <main class="conteudo">
+
+        <section class="apresentacao">
+            <p class="texto-destaque">SUA RÁDIO, ONDE VOCÊ ESTIVER</p>
+
+            <h1>Muitas vozes.<br>Uma conexão.</h1>
+
+            <p>
+                Música, aprendizado e inspiração para acompanhar
+                você em todos os momentos do dia.
+            </p>
+        </section>
+
+        <section class="cartao-radio" aria-label="Player da rádio">
+
+            <div class="capa-radio">
+                <div class="ondas" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+
+                <span class="simbolo-radio" aria-hidden="true">♫</span>
+            </div>
+
+            <div class="informacoes-radio">
+                <p class="etiqueta">ESTAMOS TRANSMITINDO</p>
+
+                <h2 id="programa-atual">Amazon Voices Radio</h2>
+
+                <p id="descricao-programa">
+                    Muitas vozes, uma conexão.
+                </p>
+
+                <p class="horario-programa">
+                    <span id="horario-inicio">--:--</span>
+                    <span aria-hidden="true"> — </span>
+                    <span id="horario-fim">--:--</span>
+                </p>
+            </div>
+
+            <audio id="audio-radio" preload="none">
+                Seu navegador não suporta a reprodução de áudio.
+            </audio>
+
+            <button
+                type="button"
+                id="botao-play"
+                class="botao-play"
+                aria-label="Tocar rádio"
+                aria-pressed="false"
+            >
+                <span id="icone-play" aria-hidden="true">▶</span>
+                <span id="texto-play">OUVIR AGORA</span>
+            </button>
+
+            <p id="status-audio" class="status-audio" role="status"
+               aria-live="polite">
+                Toque no botão para começar a ouvir.
+            </p>
+
+            <p class="aviso-audio">
+                A reprodução começa quando você tocar em ouvir.
+            </p>
+        </section>
+
+        <section class="programacao">
+            <div class="titulo-secao">
+                <div>
+                    <p class="texto-destaque">ACOMPANHE A RÁDIO</p>
+                    <h2>Programação</h2>
+                </div>
+
+                <span id="data-programacao" class="data-programacao">
+                    Programação de hoje
+                </span>
+            </div>
+
+            <div id="lista-programacao" class="lista-programacao">
+                <p class="mensagem-carregamento">
+                    Carregando programação...
+                </p>
+            </div>
+        </section>
+
+        <section class="aviso-continuidade">
+            <span class="icone-aviso" aria-hidden="true">♫</span>
+
+            <div>
+                <h2>Continue ouvindo</h2>
+                <p>
+                    Você pode ouvir enquanto trabalha, estuda ou cuida
+                    das tarefas do dia. Em celulares compatíveis,
+                    a reprodução pode continuar com a tela bloqueada.
+                </p>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="rodape">
+        <p><strong>Amazon Voices Radio</strong></p>
+        <p>Many Voices, One Connection.</p>
+        <p>© <span id="ano-atual"></span> Amazon Voices Radio</p>
+    </footer>
+</body>
+</html>

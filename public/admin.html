@@ -1,0 +1,738 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#101827">
+
+    <title>Painel Administrativo | Amazon Voices Radio</title>
+
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        .admin-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 35px 20px 60px;
+        }
+
+        .admin-topo {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 30px;
+        }
+
+        .admin-topo h1 {
+            font-size: clamp(26px, 5vw, 36px);
+        }
+
+        .admin-topo p,
+        .admin-ajuda {
+            color: var(--texto-secundario);
+            font-size: 14px;
+        }
+
+        .admin-cartao {
+            margin-bottom: 22px;
+            padding: 25px;
+            background: var(--fundo-secundario);
+            border: 1px solid var(--borda);
+            border-radius: var(--raio-grande);
+        }
+
+        .admin-cartao h2 {
+            margin-bottom: 8px;
+            font-size: 21px;
+        }
+
+        .admin-ajuda {
+            margin-bottom: 20px;
+        }
+
+        .admin-form {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+        }
+
+        .campo {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+        }
+
+        .campo.completo {
+            grid-column: 1 / -1;
+        }
+
+        .campo label {
+            color: var(--texto-secundario);
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        .campo input,
+        .campo textarea,
+        .campo select {
+            width: 100%;
+            padding: 12px 13px;
+            color: var(--texto);
+            background: var(--fundo);
+            border: 1px solid var(--borda);
+            border-radius: var(--raio-pequeno);
+            outline: none;
+        }
+
+        .campo input:focus,
+        .campo textarea:focus,
+        .campo select:focus {
+            border-color: var(--cor-principal);
+        }
+
+        .campo textarea {
+            min-height: 90px;
+            resize: vertical;
+        }
+
+        .campo input::placeholder,
+        .campo textarea::placeholder {
+            color: #8291a8;
+        }
+
+        .admin-botoes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .admin-botao {
+            min-height: 44px;
+            padding: 11px 17px;
+            color: var(--fundo);
+            background: var(--cor-principal);
+            border: none;
+            border-radius: 30px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .admin-botao:hover {
+            background: var(--cor-principal-hover);
+        }
+
+        .admin-botao.secundario {
+            color: var(--texto);
+            background: var(--cartao-hover);
+            border: 1px solid var(--borda);
+        }
+
+        .admin-botao:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+
+        .admin-mensagem {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: var(--raio-pequeno);
+            font-size: 13px;
+            overflow-wrap: anywhere;
+        }
+
+        .admin-mensagem:empty {
+            display: none;
+        }
+
+        .admin-mensagem.sucesso {
+            color: #9bf0bc;
+            background: rgba(69, 212, 131, 0.10);
+        }
+
+        .admin-mensagem.erro {
+            color: #ffaaaa;
+            background: rgba(255, 80, 80, 0.10);
+        }
+
+        .admin-lista {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .admin-item {
+            padding: 16px;
+            background: var(--fundo);
+            border: 1px solid var(--borda);
+            border-radius: var(--raio-medio);
+            overflow-wrap: anywhere;
+        }
+
+        .admin-item h3 {
+            font-size: 16px;
+        }
+
+        .admin-item p {
+            margin-top: 5px;
+            color: var(--texto-secundario);
+            font-size: 13px;
+        }
+
+        .admin-item a {
+            display: inline-block;
+            margin-top: 8px;
+            color: var(--cor-principal);
+            font-size: 13px;
+        }
+
+        .admin-item button {
+            margin-top: 12px;
+        }
+
+        .admin-login {
+            max-width: 460px;
+            margin: 35px auto;
+        }
+
+        .admin-oculto {
+            display: none !important;
+        }
+
+        .admin-voltar {
+            display: inline-block;
+            margin-bottom: 25px;
+            color: var(--cor-principal);
+            font-size: 14px;
+        }
+
+        @media (max-width: 600px) {
+            .admin-container {
+                padding: 25px 14px 45px;
+            }
+
+            .admin-cartao {
+                padding: 19px 15px;
+            }
+
+            .admin-form {
+                grid-template-columns: 1fr;
+            }
+
+            .campo.completo {
+                grid-column: auto;
+            }
+
+            .admin-botao {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header class="cabecalho">
+        <a href="/" class="marca">
+            <span class="marca-icone" aria-hidden="true">♫</span>
+            <span class="marca-texto">
+                <strong>AMAZON VOICES</strong>
+                <small>PAINEL ADMINISTRATIVO</small>
+            </span>
+        </a>
+
+        <a href="/" class="status-radio">Ver rádio ↗</a>
+    </header>
+
+    <main class="admin-container">
+
+        <!-- LOGIN -->
+        <section id="area-login" class="admin-cartao admin-login">
+            <h1>Entrar no painel</h1>
+
+            <p class="admin-ajuda">
+                Acesse com a senha administrativa configurada no servidor.
+            </p>
+
+            <form id="form-login">
+                <div class="campo">
+                    <label for="senha-admin">Senha administrativa</label>
+                    <input
+                        type="password"
+                        id="senha-admin"
+                        name="senha"
+                        autocomplete="current-password"
+                        required
+                    >
+                </div>
+
+                <div class="admin-botoes">
+                    <button type="submit" class="admin-botao">
+                        Entrar
+                    </button>
+                </div>
+
+                <p id="mensagem-login"
+                   class="admin-mensagem"
+                   role="status"
+                   aria-live="polite"></p>
+            </form>
+        </section>
+
+        <!-- PAINEL -->
+        <section id="area-painel" class="admin-oculto">
+
+            <div class="admin-topo">
+                <div>
+                    <p class="texto-destaque">CONTROLE DA ESTAÇÃO</p>
+                    <h1>Painel da rádio</h1>
+                    <p>Gerencie programas, horários e links de áudio.</p>
+                </div>
+
+                <button id="botao-sair"
+                        type="button"
+                        class="admin-botao secundario">
+                    Sair
+                </button>
+            </div>
+
+            <!-- CADASTRO DE PROGRAMAS -->
+            <section class="admin-cartao">
+                <h2>Cadastrar programa</h2>
+
+                <p class="admin-ajuda">
+                    Cadastre o nome, a descrição e o endereço do áudio.
+                </p>
+
+                <form id="form-programa" class="admin-form">
+
+                    <div class="campo completo">
+                        <label for="programa-nome">Nome do programa *</label>
+                        <input
+                            id="programa-nome"
+                            name="nome"
+                            type="text"
+                            maxlength="150"
+                            placeholder="Ex.: Inglês para iniciantes"
+                            required
+                        >
+                    </div>
+
+                    <div class="campo completo">
+                        <label for="programa-descricao">Descrição</label>
+                        <textarea
+                            id="programa-descricao"
+                            name="descricao"
+                            maxlength="1000"
+                            placeholder="Sobre o que é este programa?"
+                        ></textarea>
+                    </div>
+
+                    <div class="campo completo">
+                        <label for="programa-audio">URL do áudio MP3 *</label>
+                        <input
+                            id="programa-audio"
+                            name="url"
+                            type="url"
+                            placeholder="https://..."
+                            required
+                        >
+                    </div>
+
+                    <div class="campo completo">
+                        <button type="submit" class="admin-botao">
+                            Cadastrar programa
+                        </button>
+                    </div>
+                </form>
+
+                <p id="mensagem-programa"
+                   class="admin-mensagem"
+                   role="status"
+                   aria-live="polite"></p>
+            </section>
+
+            <!-- CADASTRO DE HORÁRIOS -->
+            <section class="admin-cartao">
+                <h2>Programar horário</h2>
+
+                <p class="admin-ajuda">
+                    Escolha um programa e defina o horário em que ele
+                    deve ser transmitido. Os horários seguem Manaus.
+                </p>
+
+                <form id="form-horario" class="admin-form">
+
+                    <div class="campo completo">
+                        <label for="horario-programa">Programa *</label>
+                        <select id="horario-programa"
+                                name="programaId"
+                                required>
+                            <option value="">Carregue os programas primeiro</option>
+                        </select>
+                    </div>
+
+                    <div class="campo">
+                        <label for="horario-inicio">Início *</label>
+                        <input
+                            id="horario-inicio"
+                            name="inicio"
+                            type="time"
+                            required
+                        >
+                    </div>
+
+                    <div class="campo">
+                        <label for="horario-fim">Fim *</label>
+                        <input
+                            id="horario-fim"
+                            name="fim"
+                            type="time"
+                            required
+                        >
+                    </div>
+
+                    <div class="campo completo">
+                        <label for="horario-descricao">Observação</label>
+                        <input
+                            id="horario-descricao"
+                            name="descricao"
+                            type="text"
+                            maxlength="300"
+                            placeholder="Opcional"
+                        >
+                    </div>
+
+                    <div class="campo completo">
+                        <button type="submit" class="admin-botao">
+                            Salvar horário
+                        </button>
+                    </div>
+                </form>
+
+                <p id="mensagem-horario"
+                   class="admin-mensagem"
+                   role="status"
+                   aria-live="polite"></p>
+            </section>
+
+            <!-- LISTAGEM -->
+            <section class="admin-cartao">
+                <h2>Programas cadastrados</h2>
+
+                <div id="lista-programas" class="admin-lista">
+                    <p class="admin-ajuda">
+                        Os programas aparecerão aqui quando o servidor
+                        estiver conectado.
+                    </p>
+                </div>
+
+                <div class="admin-botoes">
+                    <button id="botao-atualizar"
+                            type="button"
+                            class="admin-botao secundario">
+                        Atualizar listas
+                    </button>
+                </div>
+
+                <p id="mensagem-listas"
+                   class="admin-mensagem"
+                   role="status"
+                   aria-live="polite"></p>
+            </section>
+
+        </section>
+    </main>
+
+    <footer class="rodape">
+        <p><strong>Amazon Voices Radio</strong></p>
+        <p>Painel administrativo</p>
+    </footer>
+
+    <script>
+        /*
+         * Esta interface é a estrutura inicial do painel.
+         * As operações de cadastro dependem das rotas protegidas
+         * que serão implementadas e conectadas no server.js.
+         */
+
+        const loginArea = document.getElementById("area-login");
+        const painelArea = document.getElementById("area-painel");
+        const formLogin = document.getElementById("form-login");
+        const senhaAdmin = document.getElementById("senha-admin");
+        const mensagemLogin = document.getElementById("mensagem-login");
+
+        function mostrarMensagem(elemento, texto, tipo = "") {
+            elemento.textContent = texto;
+            elemento.className = "admin-mensagem";
+
+            if (tipo) {
+                elemento.classList.add(tipo);
+            }
+        }
+
+        async function requisicao(url, opcoes = {}) {
+            const resposta = await fetch(url, {
+                credentials: "same-origin",
+                ...opcoes,
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(opcoes.headers || {})
+                }
+            });
+
+            const dados = await resposta.json().catch(() => ({}));
+
+            if (!resposta.ok) {
+                throw new Error(
+                    dados.erro || dados.mensagem ||
+                    `Falha na solicitação (${resposta.status}).`
+                );
+            }
+
+            return dados;
+        }
+
+        async function verificarSessao() {
+            try {
+                await requisicao("/api/admin/sessao");
+
+                loginArea.classList.add("admin-oculto");
+                painelArea.classList.remove("admin-oculto");
+
+                await atualizarListas();
+            } catch {
+                loginArea.classList.remove("admin-oculto");
+                painelArea.classList.add("admin-oculto");
+            }
+        }
+
+        formLogin.addEventListener("submit", async (evento) => {
+            evento.preventDefault();
+
+            mostrarMensagem(mensagemLogin, "Verificando acesso...");
+
+            try {
+                await requisicao("/api/admin/login", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        senha: senhaAdmin.value
+                    })
+                });
+
+                senhaAdmin.value = "";
+                loginArea.classList.add("admin-oculto");
+                painelArea.classList.remove("admin-oculto");
+
+                mostrarMensagem(mensagemLogin, "");
+
+                await atualizarListas();
+            } catch (erro) {
+                mostrarMensagem(
+                    mensagemLogin,
+                    erro.message,
+                    "erro"
+                );
+            }
+        });
+
+        document.getElementById("botao-sair")
+            .addEventListener("click", async () => {
+                try {
+                    await requisicao("/api/admin/logout", {
+                        method: "POST"
+                    });
+                } catch (erro) {
+                    console.error(erro);
+                }
+
+                painelArea.classList.add("admin-oculto");
+                loginArea.classList.remove("admin-oculto");
+            });
+
+        async function atualizarListas() {
+            const lista = document.getElementById("lista-programas");
+            const seletor = document.getElementById("horario-programa");
+            const mensagem = document.getElementById("mensagem-listas");
+
+            lista.replaceChildren();
+            seletor.replaceChildren();
+
+            try {
+                const dados = await requisicao("/api/programas");
+
+                const itens = Array.isArray(dados)
+                    ? dados
+                    : Array.isArray(dados.programas)
+                        ? dados.programas
+                        : [];
+
+                const opcaoInicial = document.createElement("option");
+                opcaoInicial.value = "";
+                opcaoInicial.textContent = "Selecione um programa";
+                seletor.appendChild(opcaoInicial);
+
+                for (const programa of itens) {
+                    const nome = programa.nome || programa.titulo || "Programa";
+                    const id = programa.id ?? programa.programaId ?? nome;
+
+                    const opcao = document.createElement("option");
+                    opcao.value = String(id);
+                    opcao.textContent = nome;
+                    seletor.appendChild(opcao);
+
+                    const cartao = document.createElement("article");
+                    cartao.className = "admin-item";
+
+                    const titulo = document.createElement("h3");
+                    titulo.textContent = nome;
+                    cartao.appendChild(titulo);
+
+                    if (programa.descricao) {
+                        const descricao = document.createElement("p");
+                        descricao.textContent = programa.descricao;
+                        cartao.appendChild(descricao);
+                    }
+
+                    if (programa.url || programa.audio || programa.link) {
+                        const link = document.createElement("a");
+                        link.href = programa.url || programa.audio || programa.link;
+                        link.target = "_blank";
+                        link.rel = "noopener noreferrer";
+                        link.textContent = "Abrir áudio";
+                        cartao.appendChild(link);
+                    }
+
+                    lista.appendChild(cartao);
+                }
+
+                if (itens.length === 0) {
+                    lista.appendChild(
+                        criarTexto("Nenhum programa cadastrado.", "admin-ajuda")
+                    );
+                }
+
+                mostrarMensagem(
+                    mensagem,
+                    `${itens.length} programa(s) carregado(s).`,
+                    "sucesso"
+                );
+            } catch (erro) {
+                mostrarMensagem(
+                    mensagem,
+                    "Não foi possível carregar os programas: " + erro.message,
+                    "erro"
+                );
+
+                lista.appendChild(
+                    criarTexto(
+                        "Verifique a conexão com o servidor.",
+                        "admin-ajuda"
+                    )
+                );
+            }
+        }
+
+        function criarTexto(texto, classe) {
+            const elemento = document.createElement("p");
+            elemento.className = classe;
+            elemento.textContent = texto;
+            return elemento;
+        }
+
+        document.getElementById("botao-atualizar")
+            .addEventListener("click", atualizarListas);
+
+        document.getElementById("form-programa")
+            .addEventListener("submit", async (evento) => {
+                evento.preventDefault();
+
+                const formulario = evento.currentTarget;
+                const mensagem = document.getElementById("mensagem-programa");
+                const dados = Object.fromEntries(new FormData(formulario));
+
+                mostrarMensagem(mensagem, "Salvando programa...");
+
+                try {
+                    await requisicao("/api/admin/programas", {
+                        method: "POST",
+                        body: JSON.stringify(dados)
+                    });
+
+                    formulario.reset();
+
+                    mostrarMensagem(
+                        mensagem,
+                        "Programa enviado para cadastro.",
+                        "sucesso"
+                    );
+
+                    await atualizarListas();
+                } catch (erro) {
+                    mostrarMensagem(
+                        mensagem,
+                        "Não foi possível cadastrar: " + erro.message,
+                        "erro"
+                    );
+                }
+            });
+
+        document.getElementById("form-horario")
+            .addEventListener("submit", async (evento) => {
+                evento.preventDefault();
+
+                const mensagem = document.getElementById("mensagem-horario");
+                const dados = Object.fromEntries(
+                    new FormData(evento.currentTarget)
+                );
+
+                mostrarMensagem(mensagem, "Salvando horário...");
+
+                try {
+                    /*
+                     * A rota de programação já existente pode salvar
+                     * a lista completa. Antes de usar este formulário
+                     * em produção, precisamos confirmar o formato
+                     * esperado pelo server.js e pelo banco Neon.
+                     */
+                    const atual = await requisicao("/api/programacao");
+
+                    const horarios = Array.isArray(atual)
+                        ? atual
+                        : Array.isArray(atual.programacao)
+                            ? atual.programacao
+                            : [];
+
+                    horarios.push({
+                        programaId: dados.programaId,
+                        inicio: dados.inicio,
+                        fim: dados.fim,
+                        descricao: dados.descricao
+                    });
+
+                    await requisicao("/api/admin/programacao", {
+                        method: "PUT",
+                        body: JSON.stringify(horarios)
+                    });
+
+                    evento.currentTarget.reset();
+
+                    mostrarMensagem(
+                        mensagem,
+                        "Horário enviado para gravação.",
+                        "sucesso"
+                    );
+                } catch (erro) {
+                    mostrarMensagem(
+                        mensagem,
+                        "Não foi possível salvar o horário: " + erro.message,
+                        "erro"
+                    );
+                }
+            });
+
+        verificarSessao();
+    </script>
+</body>
+</html>

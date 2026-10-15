@@ -1,0 +1,750 @@
+
+/* =========================================
+   AMAZON VOICES RADIO
+   Arquivo: public/style.css
+   ========================================= */
+
+/* 1. CONFIGURAÇÕES GERAIS */
+
+:root {
+    --fundo: #101827;
+    --fundo-secundario: #172235;
+    --cartao: #1c2a40;
+    --cartao-hover: #243650;
+
+    --cor-principal: #35d0ba;
+    --cor-principal-hover: #27b9a5;
+
+    --texto: #f4f7fb;
+    --texto-secundario: #aebbd0;
+    --borda: rgba(255, 255, 255, 0.09);
+
+    --sucesso: #45d483;
+    --aviso: #ffc857;
+
+    --raio-grande: 24px;
+    --raio-medio: 16px;
+    --raio-pequeno: 10px;
+
+    --largura-maxima: 1100px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    min-height: 100vh;
+    font-family: Arial, Helvetica, sans-serif;
+    background: var(--fundo);
+    color: var(--texto);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea,
+select {
+    font: inherit;
+}
+
+button {
+    -webkit-tap-highlight-color: transparent;
+}
+
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+button:focus-visible,
+a:focus-visible {
+    outline: 3px solid var(--cor-principal);
+    outline-offset: 4px;
+}
+
+::selection {
+    background: var(--cor-principal);
+    color: var(--fundo);
+}
+
+
+/* 2. CABEÇALHO */
+
+.cabecalho {
+    width: 100%;
+    max-width: var(--largura-maxima);
+    margin: 0 auto;
+    padding: 22px 28px;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+
+    border-bottom: 1px solid var(--borda);
+}
+
+.marca {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.marca-icone {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: var(--cor-principal);
+    color: var(--fundo);
+    border-radius: 14px;
+
+    font-size: 30px;
+    font-weight: bold;
+}
+
+.marca-texto {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.35;
+}
+
+.marca-texto strong {
+    font-size: 17px;
+    letter-spacing: 1.2px;
+}
+
+.marca-texto small {
+    margin-top: 4px;
+    color: var(--texto-secundario);
+    font-size: 9px;
+    letter-spacing: 1px;
+}
+
+.status-radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+
+    padding: 7px 12px;
+    border: 1px solid var(--borda);
+    border-radius: 30px;
+
+    color: var(--texto-secundario);
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 0.7px;
+    white-space: nowrap;
+}
+
+.status-ponto {
+    width: 8px;
+    height: 8px;
+    background: var(--sucesso);
+    border-radius: 50%;
+}
+
+
+/* 3. CONTEÚDO PRINCIPAL */
+
+.conteudo {
+    width: 100%;
+    max-width: var(--largura-maxima);
+    margin: 0 auto;
+    padding: 38px 28px 60px;
+}
+
+
+/* 4. APRESENTAÇÃO */
+
+.apresentacao {
+    max-width: 700px;
+    margin: 10px auto 34px;
+    text-align: center;
+}
+
+.texto-destaque {
+    color: var(--cor-principal);
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+.apresentacao h1 {
+    margin-top: 14px;
+    font-size: clamp(34px, 6vw, 58px);
+    line-height: 1.1;
+    letter-spacing: -1.5px;
+}
+
+.apresentacao > p:last-child {
+    max-width: 540px;
+    margin: 18px auto 0;
+    color: var(--texto-secundario);
+    font-size: 16px;
+}
+
+
+/* 5. CARTÃO DO PLAYER */
+
+.cartao-radio {
+    max-width: 620px;
+    margin: 0 auto;
+    padding: 30px;
+
+    background:
+        radial-gradient(
+            circle at 50% 0%,
+            rgba(53, 208, 186, 0.10),
+            transparent 55%
+        ),
+        var(--fundo-secundario);
+
+    border: 1px solid var(--borda);
+    border-radius: var(--raio-grande);
+
+    box-shadow: 0 22px 65px rgba(0, 0, 0, 0.20);
+
+    text-align: center;
+}
+
+
+/* 6. CAPA E ONDAS SONORAS */
+
+.capa-radio {
+    position: relative;
+    width: 100%;
+    max-width: 330px;
+    height: 170px;
+    margin: 0 auto 25px;
+    overflow: hidden;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background:
+        radial-gradient(
+            circle at center,
+            rgba(53, 208, 186, 0.20),
+            transparent 65%
+        ),
+        #101827;
+
+    border: 1px solid var(--borda);
+    border-radius: var(--raio-medio);
+}
+
+.simbolo-radio {
+    position: relative;
+    z-index: 2;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 70px;
+    height: 70px;
+
+    background: var(--cor-principal);
+    color: var(--fundo);
+    border-radius: 50%;
+
+    font-size: 40px;
+    box-shadow: 0 0 40px rgba(53, 208, 186, 0.25);
+}
+
+.ondas {
+    position: absolute;
+    inset: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+
+    opacity: 0.45;
+}
+
+.ondas span {
+    width: 5px;
+    height: 25px;
+    background: var(--cor-principal);
+    border-radius: 10px;
+}
+
+.ondas span:nth-child(1),
+.ondas span:nth-child(7) {
+    height: 35px;
+}
+
+.ondas span:nth-child(2),
+.ondas span:nth-child(6) {
+    height: 55px;
+}
+
+.ondas span:nth-child(3),
+.ondas span:nth-child(5) {
+    height: 75px;
+}
+
+.ondas span:nth-child(4) {
+    height: 100px;
+}
+
+
+/* 7. INFORMAÇÕES DO PROGRAMA */
+
+.informacoes-radio {
+    margin-bottom: 22px;
+}
+
+.etiqueta {
+    color: var(--cor-principal);
+    font-size: 10px;
+    font-weight: bold;
+    letter-spacing: 1.8px;
+}
+
+.informacoes-radio h2 {
+    margin-top: 8px;
+    font-size: clamp(21px, 4vw, 29px);
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+.informacoes-radio > p:not(.etiqueta) {
+    margin-top: 7px;
+    color: var(--texto-secundario);
+    font-size: 14px;
+}
+
+.horario-programa {
+    font-size: 12px !important;
+    letter-spacing: 1px;
+}
+
+
+/* 8. BOTÃO DE REPRODUÇÃO */
+
+.botao-play {
+    width: 100%;
+    max-width: 330px;
+    min-height: 58px;
+    padding: 15px 22px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+
+    margin: 0 auto;
+
+    background: var(--cor-principal);
+    color: var(--fundo);
+
+    border: none;
+    border-radius: 50px;
+
+    font-size: 14px;
+    font-weight: bold;
+    letter-spacing: 1px;
+
+    cursor: pointer;
+
+    transition:
+        background 0.2s ease,
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.botao-play:hover {
+    background: var(--cor-principal-hover);
+    box-shadow: 0 8px 25px rgba(53, 208, 186, 0.15);
+}
+
+.botao-play:active {
+    transform: scale(0.98);
+}
+
+.botao-play span:first-child {
+    font-size: 19px;
+}
+
+.botao-play:disabled {
+    opacity: 0.65;
+    cursor: wait;
+    box-shadow: none;
+}
+
+.status-audio {
+    min-height: 24px;
+    margin-top: 15px;
+
+    color: var(--texto-secundario);
+    font-size: 12px;
+}
+
+.aviso-audio {
+    margin-top: 10px;
+    color: #8291a8;
+    font-size: 11px;
+}
+
+
+/* 9. PROGRAMAÇÃO */
+
+.programacao {
+    margin-top: 65px;
+}
+
+.titulo-secao {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+
+    margin-bottom: 22px;
+}
+
+.titulo-secao h2 {
+    margin-top: 5px;
+    font-size: clamp(25px, 4vw, 32px);
+    letter-spacing: -0.5px;
+}
+
+.data-programacao {
+    padding: 7px 12px;
+
+    color: var(--texto-secundario);
+    background: var(--fundo-secundario);
+
+    border: 1px solid var(--borda);
+    border-radius: 30px;
+
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.lista-programacao {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.mensagem-carregamento {
+    padding: 25px;
+    color: var(--texto-secundario);
+    text-align: center;
+
+    background: var(--fundo-secundario);
+    border: 1px solid var(--borda);
+    border-radius: var(--raio-medio);
+}
+
+
+/* Cartões que o JavaScript poderá criar */
+
+.item-programacao {
+    display: grid;
+    grid-template-columns: 95px minmax(0, 1fr);
+    align-items: center;
+    gap: 18px;
+
+    padding: 20px;
+
+    background: var(--fundo-secundario);
+    border: 1px solid var(--borda);
+    border-radius: var(--raio-medio);
+
+    transition:
+        background 0.2s ease,
+        border-color 0.2s ease;
+}
+
+.item-programacao:hover {
+    background: var(--cartao-hover);
+}
+
+.item-programacao.ativo {
+    background: var(--cartao);
+    border-color: rgba(53, 208, 186, 0.55);
+}
+
+.item-horario {
+    color: var(--cor-principal);
+    font-size: 14px;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.item-detalhes h3 {
+    font-size: 16px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.item-detalhes p {
+    margin-top: 5px;
+    color: var(--texto-secundario);
+    font-size: 13px;
+}
+
+.item-status {
+    display: inline-block;
+    margin-top: 8px;
+
+    color: var(--cor-principal);
+    font-size: 10px;
+    font-weight: bold;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+}
+
+
+/* 10. AVISO PARA QUEM ESTÁ OUVINDO */
+
+.aviso-continuidade {
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+
+    margin-top: 55px;
+    padding: 25px;
+
+    background: rgba(53, 208, 186, 0.06);
+    border: 1px solid rgba(53, 208, 186, 0.17);
+    border-radius: var(--raio-medio);
+}
+
+.icone-aviso {
+    flex-shrink: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 44px;
+    height: 44px;
+
+    background: rgba(53, 208, 186, 0.12);
+    color: var(--cor-principal);
+
+    border-radius: 12px;
+    font-size: 25px;
+}
+
+.aviso-continuidade h2 {
+    font-size: 17px;
+}
+
+.aviso-continuidade p {
+    margin-top: 7px;
+    color: var(--texto-secundario);
+    font-size: 13px;
+}
+
+
+/* 11. RODAPÉ */
+
+.rodape {
+    padding: 28px 20px;
+    border-top: 1px solid var(--borda);
+
+    color: var(--texto-secundario);
+    text-align: center;
+    font-size: 12px;
+}
+
+.rodape strong {
+    color: var(--texto);
+    font-size: 14px;
+}
+
+.rodape p + p {
+    margin-top: 5px;
+}
+
+
+/* 12. TABLETS */
+
+@media (max-width: 768px) {
+    .cabecalho {
+        padding: 18px 20px;
+    }
+
+    .conteudo {
+        padding: 32px 20px 45px;
+    }
+
+    .cartao-radio {
+        padding: 25px 20px;
+    }
+
+    .programacao {
+        margin-top: 48px;
+    }
+
+    .aviso-continuidade {
+        margin-top: 40px;
+    }
+}
+
+
+/* 13. CELULARES */
+
+@media (max-width: 480px) {
+    .cabecalho {
+        padding: 15px;
+        gap: 10px;
+    }
+
+    .marca {
+        gap: 9px;
+    }
+
+    .marca-icone {
+        width: 40px;
+        height: 40px;
+        border-radius: 11px;
+        font-size: 25px;
+    }
+
+    .marca-texto strong {
+        font-size: 13px;
+        letter-spacing: 0.5px;
+    }
+
+    .marca-texto small {
+        max-width: 175px;
+        font-size: 7px;
+        letter-spacing: 0.5px;
+    }
+
+    .status-radio {
+        padding: 6px 8px;
+        gap: 5px;
+        font-size: 9px;
+    }
+
+    .status-ponto {
+        width: 6px;
+        height: 6px;
+    }
+
+    .conteudo {
+        padding: 28px 15px 38px;
+    }
+
+    .apresentacao {
+        margin-top: 8px;
+        margin-bottom: 27px;
+    }
+
+    .apresentacao h1 {
+        font-size: 37px;
+        letter-spacing: -1px;
+    }
+
+    .apresentacao > p:last-child {
+        font-size: 14px;
+    }
+
+    .cartao-radio {
+        padding: 22px 16px;
+        border-radius: 20px;
+    }
+
+    .capa-radio {
+        height: 140px;
+        margin-bottom: 22px;
+    }
+
+    .simbolo-radio {
+        width: 60px;
+        height: 60px;
+        font-size: 34px;
+    }
+
+    .botao-play {
+        min-height: 56px;
+        font-size: 13px;
+    }
+
+    .titulo-secao {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .titulo-secao h2 {
+        font-size: 27px;
+    }
+
+    .item-programacao {
+        grid-template-columns: 76px minmax(0, 1fr);
+        gap: 12px;
+        padding: 16px 12px;
+    }
+
+    .item-horario {
+        font-size: 12px;
+    }
+
+    .item-detalhes h3 {
+        font-size: 14px;
+    }
+
+    .item-detalhes p {
+        font-size: 12px;
+    }
+
+    .aviso-continuidade {
+        gap: 12px;
+        padding: 18px 15px;
+    }
+
+    .icone-aviso {
+        width: 38px;
+        height: 38px;
+        font-size: 21px;
+    }
+
+    .aviso-continuidade h2 {
+        font-size: 15px;
+    }
+
+    .aviso-continuidade p {
+        font-size: 12px;
+    }
+}
+
+
+/* 14. ACESSIBILIDADE */
+
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+    }
+}
