@@ -1,574 +1,367 @@
 
-/* =========================================
-   AMAZON VOICES RADIO
-   Arquivo: public/script.js
-   ========================================= */
+const loginArea = document.getElementById("area-login");
+const painelArea = document.getElementById("area-painel");
+const formLogin = document.getElementById("form-login");
+const senhaAdmin = document.getElementById("senha-admin");
+const mensagemLogin = document.getElementById("mensagem-login");
 
-"use strict";
+function mostrarMensagem(elemento, texto, tipo = "") {
+    elemento.textContent = texto;
+    elemento.className = "admin-mensagem";
 
-// Endereços da API do servidor.
-const API = {
-    programacao: "/api/programacao",
-    programas: "/api/programas"
-};
-
-// Elementos da página.
-const elementos = {
-    audio: document.getElementById("audio-radio"),
-    botaoPlay: document.getElementById("botao-play"),
-    iconePlay: document.getElementById("icone-play"),
-    textoPlay: document.getElementById("texto-play"),
-    statusAudio: document.getElementById("status-audio"),
-
-    programaAtual: document.getElementById("programa-atual"),
-    descricaoPrograma: document.getElementById("descricao-programa"),
-    horarioInicio: document.getElementById("horario-inicio"),
-    horarioFim: document.getElementById("horario-fim"),
-
-    listaProgramacao: document.getElementById("lista-programacao"),
-    dataProgramacao: document.getElementById("data-programacao"),
-    anoAtual: document.getElementById("ano-atual")
-};
-
-// Estado da aplicação.
-let programacao = [];
-let programas = [];
-let programaSelecionado = null;
-let tocando = false;
-
-
-/* =========================================
-   1. FUNÇÕES AUXILIARES
-   ========================================= */
-
-// Obtém a hora atual no fuso de Manaus.
-function obterHoraManaus() {
-    return new Date(
-        new Date().toLocaleString("en-US", {
-            timeZone: "America/Manaus"
-        })
-    );
-}
-
-// Converte uma hora "HH:MM" em minutos.
-function converterMinutos(hora) {
-    if (typeof hora !== "string") {
-        return null;
-    }
-
-    const resultado = hora.match(/^(\d{1,2}):(\d{2})$/);
-
-    if (!resultado) {
-        return null;
-    }
-
-    const horas = Number(resultado[1]);
-    const minutos = Number(resultado[2]);
-
-    if (horas > 23 || minutos > 59) {
-        return null;
-    }
-
-    return horas * 60 + minutos;
-}
-
-// Obtém o horário atual em minutos.
-function minutosAtuais() {
-    const agora = obterHoraManaus();
-
-    return agora.getHours() * 60 + agora.getMinutes();
-}
-
-// Formata a data para o público brasileiro.
-function formatarData() {
-    return new Intl.DateTimeFormat("pt-BR", {
-        timeZone: "America/Manaus",
-        weekday: "long",
-        day: "2-digit",
-        month: "long"
-    }).format(new Date());
-}
-
-// Procura uma propriedade entre possíveis nomes.
-function obterCampo(objeto, nomes, padrao = "") {
-    for (const nome of nomes) {
-        if (
-            objeto &&
-            objeto[nome] !== undefined &&
-            objeto[nome] !== null
-        ) {
-            return objeto[nome];
-        }
-    }
-
-    return padrao;
-}
-
-// Exibe uma mensagem na área de status do áudio.
-function informarAudio(mensagem) {
-    if (elementos.statusAudio) {
-        elementos.statusAudio.textContent = mensagem;
+    if (tipo) {
+        elemento.classList.add(tipo);
     }
 }
 
-// Atualiza o texto e o ícone do botão.
-function atualizarBotao(estaTocando) {
-    if (!elementos.botaoPlay) {
-        return;
-    }
-
-    tocando = estaTocando;
-
-    elementos.iconePlay.textContent = estaTocando ? "Ⅱ" : "▶";
-
-    elementos.textoPlay.textContent = estaTocando
-        ? "PAUSAR RÁDIO"
-        : "OUVIR AGORA";
-
-    elementos.botaoPlay.setAttribute(
-        "aria-label",
-        estaTocando ? "Pausar rádio" : "Tocar rádio"
-    );
-
-    elementos.botaoPlay.setAttribute(
-        "aria-pressed",
-        String(estaTocando)
-    );
-}
-
-
-/* =========================================
-   2. BUSCA DOS DADOS NO SERVIDOR
-   ========================================= */
-
-async function buscarJSON(url) {
+async function requisicao(url, opcoes = {}) {
     const resposta = await fetch(url, {
+        credentials: "same-origin",
+        ...opcoes,
         headers: {
-            Accept: "application/json"
-        },
-        cache: "no-store"
+            ...(opcoes.headers || {}),
+            "Content-Type": "application/json"
+        }
     });
+
+    const dados = await resposta.json().catch(() => ({}));
 
     if (!resposta.ok) {
         throw new Error(
-            `Falha ao consultar ${url}: HTTP ${resposta.status}`
+            dados.erro ||
+            dados.mensagem ||
+            `Falha na solicitação (${resposta.status}).`
         );
     }
 
-    return resposta.json();
+    return dados;
 }
 
-async function carregarDados() {
+// Verifica se a sessão está realmente autenticada.
+async function verificarSessao() {
     try {
-        informarAudio("Carregando a programação...");
+        const sessao = await requisicao("/api/admin/sessao");
 
-        const resultados = await Promise.allSettled([
-            buscarJSON(API.programacao),
-            buscarJSON(API.programas)
-        ]);
-
-        if (resultados[0].status === "fulfilled") {
-            const dados = resultados[0].value;
-
-            programacao = Array.isArray(dados)
-                ? dados
-                : Array.isArray(dados.programacao)
-                    ? dados.programacao
-                    : Array.isArray(dados.horarios)
-                        ? dados.horarios
-                        : [];
+        if (sessao.autenticado === true) {
+            loginArea.classList.add("admin-oculto");
+            painelArea.classList.remove("admin-oculto");
+            await atualizarListas();
         } else {
-            console.error(
-                "Erro ao carregar programação:",
-                resultados[0].reason
-            );
-
-            programacao = [];
-        }
-
-        if (resultados[1].status === "fulfilled") {
-            const dados = resultados[1].value;
-
-            programas = Array.isArray(dados)
-                ? dados
-                : Array.isArray(dados.programas)
-                    ? dados.programas
-                    : [];
-        } else {
-            console.error(
-                "Erro ao carregar programas:",
-                resultados[1].reason
-            );
-
-            programas = [];
-        }
-
-        renderizarProgramacao();
-        atualizarProgramaAtual();
-
-        if (programacao.length === 0) {
-            informarAudio(
-                "A programação ainda não está disponível."
-            );
-        } else if (!tocando) {
-            informarAudio(
-                "Escolha ouvir para iniciar a rádio."
-            );
+            loginArea.classList.remove("admin-oculto");
+            painelArea.classList.add("admin-oculto");
         }
     } catch (erro) {
-        console.error("Erro ao carregar dados:", erro);
+        loginArea.classList.remove("admin-oculto");
+        painelArea.classList.add("admin-oculto");
 
-        informarAudio(
-            "Não foi possível carregar os dados da rádio."
+        mostrarMensagem(
+            mensagemLogin,
+            "Não foi possível verificar a sessão. Tente entrar novamente.",
+            "erro"
         );
     }
 }
 
+// Login administrativo.
+formLogin.addEventListener("submit", async (evento) => {
+    evento.preventDefault();
 
-/* =========================================
-   3. IDENTIFICAÇÃO DO PROGRAMA ATUAL
-   ========================================= */
+    mostrarMensagem(mensagemLogin, "Verificando acesso...");
 
-function obterDadosHorario(item) {
-    return {
-        inicio: obterCampo(
-            item,
-            ["inicio", "horaInicio", "hora_inicio", "start"],
-            ""
-        ),
+    try {
+        const resultado = await requisicao("/api/admin/login", {
+            method: "POST",
+            body: JSON.stringify({
+                senha: senhaAdmin.value
+            })
+        });
 
-        fim: obterCampo(
-            item,
-            ["fim", "horaFim", "hora_fim", "end"],
-            ""
-        ),
-
-        nome: obterCampo(
-            item,
-            ["nome", "titulo", "programa", "nomePrograma"],
-            "Programa da rádio"
-        ),
-
-        descricao: obterCampo(
-            item,
-            ["descricao", "description", "detalhes"],
-            ""
-        ),
-
-        audio: obterCampo(
-            item,
-            [
-                "url",
-                "audio",
-                "link",
-                "urlAudio",
-                "url_audio",
-                "arquivo"
-            ],
-            ""
-        ),
-
-        original: item
-    };
-}
-
-function encontrarProgramaAtual() {
-    const agora = minutosAtuais();
-
-    for (const item of programacao) {
-        const dados = obterDadosHorario(item);
-
-        const inicio = converterMinutos(dados.inicio);
-        const fim = converterMinutos(dados.fim);
-
-        if (inicio === null || fim === null || inicio === fim) {
-            continue;
+        if (resultado.sucesso !== true) {
+            throw new Error("O servidor não confirmou o acesso.");
         }
 
-        // Também permite programas que atravessam a meia-noite.
-        const estaNoHorario = inicio < fim
-            ? agora >= inicio && agora < fim
-            : agora >= inicio || agora < fim;
+        senhaAdmin.value = "";
 
-        if (estaNoHorario) {
-            return dados;
-        }
-    }
+        // Confirma a sessão criada pelo servidor antes de abrir o painel.
+        const sessao = await requisicao("/api/admin/sessao");
 
-    return null;
-}
-
-function atualizarProgramaAtual() {
-    const atual = encontrarProgramaAtual();
-
-    if (!atual) {
-        programaSelecionado = null;
-
-        elementos.programaAtual.textContent =
-            "Intervalo de programação";
-
-        elementos.descricaoPrograma.textContent =
-            "Em breve, novas atrações na Amazon Voices Radio.";
-
-        elementos.horarioInicio.textContent = "--:--";
-        elementos.horarioFim.textContent = "--:--";
-
-        renderizarProgramacao();
-        return;
-    }
-
-    programaSelecionado = atual;
-
-    elementos.programaAtual.textContent = atual.nome;
-
-    elementos.descricaoPrograma.textContent =
-        atual.descricao || "Acompanhe este programa na nossa rádio.";
-
-    elementos.horarioInicio.textContent = atual.inicio;
-    elementos.horarioFim.textContent = atual.fim;
-
-    renderizarProgramacao();
-}
-
-
-/* =========================================
-   4. LISTA DE PROGRAMAÇÃO
-   ========================================= */
-
-function criarElemento(tag, classe, texto) {
-    const elemento = document.createElement(tag);
-
-    if (classe) {
-        elemento.className = classe;
-    }
-
-    if (texto !== undefined) {
-        elemento.textContent = texto;
-    }
-
-    return elemento;
-}
-
-function renderizarProgramacao() {
-    if (!elementos.listaProgramacao) {
-        return;
-    }
-
-    elementos.listaProgramacao.replaceChildren();
-
-    if (elementos.dataProgramacao) {
-        elementos.dataProgramacao.textContent = formatarData();
-    }
-
-    if (elementos.anoAtual) {
-        elementos.anoAtual.textContent = new Date().getFullYear();
-    }
-
-    if (programacao.length === 0) {
-        elementos.listaProgramacao.appendChild(
-            criarElemento(
-                "p",
-                "mensagem-carregamento",
-                "Nenhum horário de programação cadastrado."
-            )
-        );
-
-        return;
-    }
-
-    const listaOrdenada = [...programacao].sort((a, b) => {
-        const horaA = converterMinutos(
-            obterDadosHorario(a).inicio
-        );
-
-        const horaB = converterMinutos(
-            obterDadosHorario(b).inicio
-        );
-
-        return (horaA ?? 0) - (horaB ?? 0);
-    });
-
-    for (const item of listaOrdenada) {
-        const dados = obterDadosHorario(item);
-
-        const cartao = criarElemento(
-            "article",
-            "item-programacao"
-        );
-
-        const horario = criarElemento(
-            "div",
-            "item-horario",
-            `${dados.inicio || "--:--"} – ${dados.fim || "--:--"}`
-        );
-
-        const detalhes = criarElemento("div", "item-detalhes");
-
-        detalhes.appendChild(
-            criarElemento("h3", "", dados.nome)
-        );
-
-        if (dados.descricao) {
-            detalhes.appendChild(
-                criarElemento("p", "", dados.descricao)
+        if (sessao.autenticado !== true) {
+            throw new Error(
+                "Login recebido, mas a sessão não foi reconhecida. " +
+                "Verifique os cookies e a configuração do servidor."
             );
         }
 
-        if (
-            programaSelecionado &&
-            dados.inicio === programaSelecionado.inicio &&
-            dados.fim === programaSelecionado.fim &&
-            dados.nome === programaSelecionado.nome
-        ) {
-            cartao.classList.add("ativo");
+        loginArea.classList.add("admin-oculto");
+        painelArea.classList.remove("admin-oculto");
 
-            detalhes.appendChild(
-                criarElemento("span", "item-status", "No ar agora")
-            );
-        }
+        mostrarMensagem(mensagemLogin, "");
 
-        cartao.append(horario, detalhes);
-
-        elementos.listaProgramacao.appendChild(cartao);
-    }
-}
-
-
-/* =========================================
-   5. REPRODUÇÃO DE ÁUDIO
-   ========================================= */
-
-function obterURLAudio(programa) {
-    if (!programa) {
-        return "";
-    }
-
-    const url = programa.audio;
-
-    if (typeof url !== "string" || !url.trim()) {
-        return "";
-    }
-
-    try {
-        const endereco = new URL(url, window.location.origin);
-
-        if (!["http:", "https:"].includes(endereco.protocol)) {
-            return "";
-        }
-
-        return endereco.href;
-    } catch {
-        return "";
-    }
-}
-
-async function tocarRadio() {
-    if (!elementos.audio) {
-        informarAudio("O reprodutor de áudio não foi encontrado.");
-        return;
-    }
-
-    // Se já estiver tocando, o botão passa a pausar.
-    if (!elementos.audio.paused) {
-        elementos.audio.pause();
-        return;
-    }
-
-    const atual = encontrarProgramaAtual();
-
-    if (!atual) {
-        informarAudio(
-            "Não há um programa ativo neste horário."
-        );
-
-        return;
-    }
-
-    const url = obterURLAudio(atual);
-
-    if (!url) {
-        informarAudio(
-            "O áudio deste programa ainda não foi configurado."
-        );
-
-        return;
-    }
-
-    try {
-        const audio = elementos.audio;
-
-        if (audio.src !== url) {
-            audio.src = url;
-            audio.load();
-        }
-
-        informarAudio("Conectando à rádio...");
-
-        await audio.play();
-
-        atualizarBotao(true);
-        informarAudio("Você está ouvindo a Amazon Voices Radio.");
+        await atualizarListas();
     } catch (erro) {
-        console.error("Erro ao reproduzir áudio:", erro);
-
-        atualizarBotao(false);
-
-        informarAudio(
-            "Não foi possível reproduzir o áudio. Verifique o link e tente novamente."
+        mostrarMensagem(
+            mensagemLogin,
+            erro.message,
+            "erro"
         );
-    }
-}
-
-
-/* =========================================
-   6. EVENTOS DO REPRODUTOR
-   ========================================= */
-
-if (elementos.botaoPlay) {
-    elementos.botaoPlay.addEventListener("click", tocarRadio);
-}
-
-if (elementos.audio) {
-    elementos.audio.addEventListener("play", () => {
-        atualizarBotao(true);
-        informarAudio("Você está ouvindo a Amazon Voices Radio.");
-    });
-
-    elementos.audio.addEventListener("pause", () => {
-        atualizarBotao(false);
-    });
-
-    elementos.audio.addEventListener("ended", () => {
-        atualizarBotao(false);
-        informarAudio("A reprodução terminou.");
-    });
-
-    elementos.audio.addEventListener("error", () => {
-        atualizarBotao(false);
-
-        informarAudio(
-            "Erro ao carregar o áudio. Confira o endereço do arquivo."
-        );
-    });
-}
-
-
-/* =========================================
-   7. ATUALIZAÇÃO AUTOMÁTICA
-   ========================================= */
-
-// Reavalia o programa a cada 30 segundos.
-// Isso não interrompe intencionalmente o áudio em reprodução.
-setInterval(() => {
-    atualizarProgramaAtual();
-}, 30000);
-
-// Atualiza os dados quando a página volta a ficar visível.
-document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) {
-        carregarDados();
     }
 });
 
-// Inicialização.
-carregarDados();
+// Sair do painel.
+document.getElementById("botao-sair")
+    .addEventListener("click", async () => {
+        try {
+            await requisicao("/api/admin/logout", {
+                method: "POST"
+            });
+        } catch (erro) {
+            console.error("Erro ao sair:", erro);
+        }
+
+        painelArea.classList.add("admin-oculto");
+        loginArea.classList.remove("admin-oculto");
+
+        mostrarMensagem(
+            mensagemLogin,
+            "Você saiu do painel."
+        );
+    });
+
+// Cria texto seguro para exibição.
+function criarTexto(texto, classe) {
+    const elemento = document.createElement("p");
+    elemento.className = classe;
+    elemento.textContent = texto;
+    return elemento;
+}
+
+// Carrega programas e atualiza a lista e o seletor de horários.
+async function atualizarListas() {
+    const lista = document.getElementById("lista-programas");
+    const seletor = document.getElementById("horario-programa");
+    const mensagem = document.getElementById("mensagem-listas");
+
+    lista.replaceChildren();
+    seletor.replaceChildren();
+
+    try {
+        const dados = await requisicao("/api/programas");
+
+        const itens = Array.isArray(dados)
+            ? dados
+            : Array.isArray(dados.programas)
+                ? dados.programas
+                : [];
+
+        const opcaoInicial = document.createElement("option");
+        opcaoInicial.value = "";
+        opcaoInicial.textContent = "Selecione um programa";
+        seletor.appendChild(opcaoInicial);
+
+        for (const programa of itens) {
+            const nome = programa.nome || programa.titulo || "Programa";
+            const id = programa.id ?? programa.programaId;
+
+            const opcao = document.createElement("option");
+            opcao.value = String(id);
+            opcao.textContent = nome;
+            seletor.appendChild(opcao);
+
+            const cartao = document.createElement("article");
+            cartao.className = "admin-item";
+
+            const titulo = document.createElement("h3");
+            titulo.textContent = nome;
+            cartao.appendChild(titulo);
+
+            if (programa.idioma) {
+                cartao.appendChild(
+                    criarTexto("Idioma: " + programa.idioma, "")
+                );
+            }
+
+            if (programa.descricao) {
+                cartao.appendChild(
+                    criarTexto(programa.descricao, "")
+                );
+            }
+
+            const urlAudio =
+                programa.audioUrl ||
+                programa.url_audio ||
+                programa.url ||
+                programa.audio ||
+                programa.link;
+
+            if (urlAudio) {
+                const link = document.createElement("a");
+                link.href = urlAudio;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                link.textContent = "Abrir áudio";
+                cartao.appendChild(link);
+            }
+
+            lista.appendChild(cartao);
+        }
+
+        if (itens.length === 0) {
+            lista.appendChild(
+                criarTexto("Nenhum programa cadastrado.", "admin-ajuda")
+            );
+        }
+
+        mostrarMensagem(
+            mensagem,
+            `${itens.length} programa(s) carregado(s).`,
+            "sucesso"
+        );
+    } catch (erro) {
+        mostrarMensagem(
+            mensagem,
+            "Não foi possível carregar os programas: " + erro.message,
+            "erro"
+        );
+
+        lista.appendChild(
+            criarTexto(
+                "Verifique a conexão com o servidor.",
+                "admin-ajuda"
+            )
+        );
+    }
+}
+
+// Botão para atualizar as listas.
+document.getElementById("botao-atualizar")
+    .addEventListener("click", atualizarListas);
+
+// Cadastro de programas.
+document.getElementById("form-programa")
+    .addEventListener("submit", async (evento) => {
+        evento.preventDefault();
+
+        const formulario = evento.currentTarget;
+        const mensagem = document.getElementById("mensagem-programa");
+        const botao = formulario.querySelector('button[type="submit"]');
+        const dados = Object.fromEntries(new FormData(formulario));
+
+        // O servidor aceita nome, descrição e URL do áudio.
+        mostrarMensagem(mensagem, "Salvando programa...");
+        botao.disabled = true;
+
+        try {
+            const resultado = await requisicao(
+                "/api/admin/programas",
+                {
+                    method: "POST",
+                    body: JSON.stringify(dados)
+                }
+            );
+
+            if (resultado.sucesso !== true) {
+                throw new Error("O servidor não confirmou o cadastro.");
+            }
+
+            formulario.reset();
+
+            mostrarMensagem(
+                mensagem,
+                "Programa cadastrado com sucesso!",
+                "sucesso"
+            );
+
+            await atualizarListas();
+        } catch (erro) {
+            mostrarMensagem(
+                mensagem,
+                "Não foi possível cadastrar: " + erro.message,
+                "erro"
+            );
+        } finally {
+            botao.disabled = false;
+        }
+    });
+
+// Cadastro de horários da programação.
+document.getElementById("form-horario")
+    .addEventListener("submit", async (evento) => {
+        evento.preventDefault();
+
+        const formulario = evento.currentTarget;
+        const mensagem = document.getElementById("mensagem-horario");
+        const botao = formulario.querySelector('button[type="submit"]');
+        const dados = Object.fromEntries(new FormData(formulario));
+
+        if (!dados.programaId || !dados.inicio || !dados.fim) {
+            mostrarMensagem(
+                mensagem,
+                "Selecione o programa e informe os horários de início e fim.",
+                "erro"
+            );
+            return;
+        }
+
+        if (dados.inicio === dados.fim) {
+            mostrarMensagem(
+                mensagem,
+                "O início e o fim não podem ser iguais.",
+                "erro"
+            );
+            return;
+        }
+
+        mostrarMensagem(mensagem, "Salvando horário...");
+        botao.disabled = true;
+
+        try {
+            // A rota PUT recebe a lista completa. Preservamos os horários
+            // existentes antes de acrescentar o novo.
+            const atual = await requisicao("/api/programacao");
+
+            const horarios = Array.isArray(atual)
+                ? atual
+                : Array.isArray(atual.programacao)
+                    ? atual.programacao
+                    : [];
+
+            horarios.push({
+                programaId: dados.programaId,
+                inicio: dados.inicio,
+                fim: dados.fim,
+                descricao: dados.descricao || "",
+                ativo: true
+            });
+
+            const resultado = await requisicao(
+                "/api/admin/programacao",
+                {
+                    method: "PUT",
+                    body: JSON.stringify(horarios)
+                }
+            );
+
+            if (resultado.sucesso !== true) {
+                throw new Error("O servidor não confirmou a programação.");
+            }
+
+            formulario.reset();
+
+            mostrarMensagem(
+                mensagem,
+                "Horário salvo com sucesso!",
+                "sucesso"
+            );
+        } catch (erro) {
+            mostrarMensagem(
+                mensagem,
+                "Não foi possível salvar o horário: " + erro.message,
+                "erro"
+            );
+        } finally {
+            botao.disabled = false;
+        }
+    });
+
+// Verifica a sessão assim que a página abre.
+verificarSessao();
