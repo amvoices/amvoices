@@ -9,6 +9,7 @@
     <title>Painel Administrativo | Amazon Voices Radio</title>
 
     <link rel="stylesheet" href="./style.css">
+
     <style>
         .admin-container {
             max-width: 900px;
@@ -184,12 +185,9 @@
         .admin-item a {
             display: inline-block;
             margin-top: 8px;
+            margin-right: 12px;
             color: var(--cor-principal);
             font-size: 13px;
-        }
-
-        .admin-item button {
-            margin-top: 12px;
         }
 
         .admin-login {
@@ -199,13 +197,6 @@
 
         .admin-oculto {
             display: none !important;
-        }
-
-        .admin-voltar {
-            display: inline-block;
-            margin-bottom: 25px;
-            color: var(--cor-principal);
-            font-size: 14px;
         }
 
         @media (max-width: 600px) {
@@ -302,7 +293,7 @@
                 <h2>Cadastrar programa</h2>
 
                 <p class="admin-ajuda">
-                    Cadastre o nome, a descrição e o endereço do áudio.
+                    Cadastre o nome, a descrição e o endereço do áudio MP3.
                 </p>
 
                 <form id="form-programa" class="admin-form">
@@ -353,13 +344,13 @@
                    aria-live="polite"></p>
             </section>
 
-            <!-- CADASTRO DE HORÁRIOS -->
+            <!-- PROGRAMAÇÃO DE HORÁRIOS -->
             <section class="admin-cartao">
                 <h2>Programar horário</h2>
 
                 <p class="admin-ajuda">
-                    Escolha um programa e defina o horário em que ele
-                    deve ser transmitido. Os horários seguem Manaus.
+                    Escolha um programa e defina os horários de transmissão.
+                    Os horários seguem Manaus.
                 </p>
 
                 <form id="form-horario" class="admin-form">
@@ -369,7 +360,7 @@
                         <select id="horario-programa"
                                 name="programaId"
                                 required>
-                            <option value="">Carregue os programas primeiro</option>
+                            <option value="">Carregando programas...</option>
                         </select>
                     </div>
 
@@ -417,14 +408,13 @@
                    aria-live="polite"></p>
             </section>
 
-            <!-- LISTAGEM -->
+            <!-- PROGRAMAS CADASTRADOS -->
             <section class="admin-cartao">
                 <h2>Programas cadastrados</h2>
 
                 <div id="lista-programas" class="admin-lista">
                     <p class="admin-ajuda">
-                        Os programas aparecerão aqui quando o servidor
-                        estiver conectado.
+                        Os programas aparecerão aqui quando o servidor estiver conectado.
                     </p>
                 </div>
 
@@ -451,17 +441,23 @@
     </footer>
 
     <script>
-        /*
-         * Esta interface é a estrutura inicial do painel.
-         * As operações de cadastro dependem das rotas protegidas
-         * que serão implementadas e conectadas no server.js.
-         */
+        "use strict";
 
         const loginArea = document.getElementById("area-login");
         const painelArea = document.getElementById("area-painel");
         const formLogin = document.getElementById("form-login");
         const senhaAdmin = document.getElementById("senha-admin");
         const mensagemLogin = document.getElementById("mensagem-login");
+
+        const formPrograma = document.getElementById("form-programa");
+        const formHorario = document.getElementById("form-horario");
+
+        const mensagemPrograma = document.getElementById("mensagem-programa");
+        const mensagemHorario = document.getElementById("mensagem-horario");
+        const mensagemListas = document.getElementById("mensagem-listas");
+
+        const listaProgramas = document.getElementById("lista-programas");
+        const seletorPrograma = document.getElementById("horario-programa");
 
         function mostrarMensagem(elemento, texto, tipo = "") {
             elemento.textContent = texto;
@@ -472,13 +468,20 @@
             }
         }
 
+        function criarTexto(texto, classe = "admin-ajuda") {
+            const elemento = document.createElement("p");
+            elemento.className = classe;
+            elemento.textContent = texto;
+            return elemento;
+        }
+
         async function requisicao(url, opcoes = {}) {
             const resposta = await fetch(url, {
                 credentials: "same-origin",
                 ...opcoes,
                 headers: {
-                    "Content-Type": "application/json",
-                    ...(opcoes.headers || {})
+                    ...(opcoes.headers || {}),
+                    "Content-Type": "application/json"
                 }
             });
 
@@ -486,12 +489,25 @@
 
             if (!resposta.ok) {
                 throw new Error(
-                    dados.erro || dados.mensagem ||
+                    dados.erro ||
+                    dados.mensagem ||
                     `Falha na solicitação (${resposta.status}).`
                 );
             }
 
             return dados;
+        }
+
+        function normalizarLista(dados, chave) {
+            if (Array.isArray(dados)) {
+                return dados;
+            }
+
+            if (dados && Array.isArray(dados[chave])) {
+                return dados[chave];
+            }
+
+            return [];
         }
 
         async function verificarSessao() {
@@ -511,6 +527,9 @@
         formLogin.addEventListener("submit", async (evento) => {
             evento.preventDefault();
 
+            const botao = formLogin.querySelector('button[type="submit"]');
+
+            botao.disabled = true;
             mostrarMensagem(mensagemLogin, "Verificando acesso...");
 
             try {
@@ -522,6 +541,7 @@
                 });
 
                 senhaAdmin.value = "";
+
                 loginArea.classList.add("admin-oculto");
                 painelArea.classList.remove("admin-oculto");
 
@@ -531,9 +551,11 @@
             } catch (erro) {
                 mostrarMensagem(
                     mensagemLogin,
-                    erro.message,
+                    "Não foi possível entrar: " + erro.message,
                     "erro"
                 );
+            } finally {
+                botao.disabled = false;
             }
         });
 
@@ -544,43 +566,41 @@
                         method: "POST"
                     });
                 } catch (erro) {
-                    console.error(erro);
+                    console.error("Erro ao sair:", erro);
                 }
 
                 painelArea.classList.add("admin-oculto");
                 loginArea.classList.remove("admin-oculto");
+                senhaAdmin.value = "";
+
+                mostrarMensagem(mensagemLogin, "Você saiu do painel.");
             });
 
         async function atualizarListas() {
-            const lista = document.getElementById("lista-programas");
-            const seletor = document.getElementById("horario-programa");
-            const mensagem = document.getElementById("mensagem-listas");
+            listaProgramas.replaceChildren();
+            seletorPrograma.replaceChildren();
 
-            lista.replaceChildren();
-            seletor.replaceChildren();
+            const opcaoInicial = document.createElement("option");
+            opcaoInicial.value = "";
+            opcaoInicial.textContent = "Selecione um programa";
+            seletorPrograma.appendChild(opcaoInicial);
+
+            mostrarMensagem(mensagemListas, "Carregando programas...");
 
             try {
                 const dados = await requisicao("/api/programas");
-
-                const itens = Array.isArray(dados)
-                    ? dados
-                    : Array.isArray(dados.programas)
-                        ? dados.programas
-                        : [];
-
-                const opcaoInicial = document.createElement("option");
-                opcaoInicial.value = "";
-                opcaoInicial.textContent = "Selecione um programa";
-                seletor.appendChild(opcaoInicial);
+                const itens = normalizarLista(dados, "programas");
 
                 for (const programa of itens) {
+                    const id = programa.id ?? programa.programaId;
                     const nome = programa.nome || programa.titulo || "Programa";
-                    const id = programa.id ?? programa.programaId ?? nome;
 
-                    const opcao = document.createElement("option");
-                    opcao.value = String(id);
-                    opcao.textContent = nome;
-                    seletor.appendChild(opcao);
+                    if (id !== undefined && id !== null && String(id) !== "") {
+                        const opcao = document.createElement("option");
+                        opcao.value = String(id);
+                        opcao.textContent = nome;
+                        seletorPrograma.appendChild(opcao);
+                    }
 
                     const cartao = document.createElement("article");
                     cartao.className = "admin-item";
@@ -590,147 +610,161 @@
                     cartao.appendChild(titulo);
 
                     if (programa.descricao) {
-                        const descricao = document.createElement("p");
-                        descricao.textContent = programa.descricao;
-                        cartao.appendChild(descricao);
+                        cartao.appendChild(
+                            criarTexto(programa.descricao)
+                        );
                     }
 
-                    if (programa.url || programa.audio || programa.link) {
+                    const urlAudio =
+                        programa.audioUrl ||
+                        programa.url_audio ||
+                        programa.url ||
+                        programa.audio ||
+                        programa.link;
+
+                    if (urlAudio) {
                         const link = document.createElement("a");
-                        link.href = programa.url || programa.audio || programa.link;
+                        link.href = urlAudio;
                         link.target = "_blank";
                         link.rel = "noopener noreferrer";
                         link.textContent = "Abrir áudio";
                         cartao.appendChild(link);
                     }
 
-                    lista.appendChild(cartao);
+                    listaProgramas.appendChild(cartao);
                 }
 
                 if (itens.length === 0) {
-                    lista.appendChild(
-                        criarTexto("Nenhum programa cadastrado.", "admin-ajuda")
+                    listaProgramas.appendChild(
+                        criarTexto("Nenhum programa cadastrado.")
                     );
                 }
 
                 mostrarMensagem(
-                    mensagem,
+                    mensagemListas,
                     `${itens.length} programa(s) carregado(s).`,
                     "sucesso"
                 );
             } catch (erro) {
                 mostrarMensagem(
-                    mensagem,
+                    mensagemListas,
                     "Não foi possível carregar os programas: " + erro.message,
                     "erro"
                 );
 
-                lista.appendChild(
-                    criarTexto(
-                        "Verifique a conexão com o servidor.",
-                        "admin-ajuda"
-                    )
+                listaProgramas.appendChild(
+                    criarTexto("Verifique a conexão com o servidor.")
                 );
             }
-        }
-
-        function criarTexto(texto, classe) {
-            const elemento = document.createElement("p");
-            elemento.className = classe;
-            elemento.textContent = texto;
-            return elemento;
         }
 
         document.getElementById("botao-atualizar")
             .addEventListener("click", atualizarListas);
 
-        document.getElementById("form-programa")
-            .addEventListener("submit", async (evento) => {
-                evento.preventDefault();
+        formPrograma.addEventListener("submit", async (evento) => {
+            evento.preventDefault();
 
-                const formulario = evento.currentTarget;
-                const mensagem = document.getElementById("mensagem-programa");
-                const dados = Object.fromEntries(new FormData(formulario));
+            const formulario = evento.currentTarget;
+            const botao = formulario.querySelector('button[type="submit"]');
+            const dados = Object.fromEntries(new FormData(formulario));
 
-                mostrarMensagem(mensagem, "Salvando programa...");
+            botao.disabled = true;
+            mostrarMensagem(mensagemPrograma, "Salvando programa...");
 
-                try {
-                    await requisicao("/api/admin/programas", {
-                        method: "POST",
-                        body: JSON.stringify(dados)
-                    });
+            try {
+                await requisicao("/api/admin/programas", {
+                    method: "POST",
+                    body: JSON.stringify(dados)
+                });
 
-                    formulario.reset();
+                // Guardamos a referência do formulário antes do await.
+                formulario.reset();
 
-                    mostrarMensagem(
-                        mensagem,
-                        "Programa enviado para cadastro.",
-                        "sucesso"
-                    );
-
-                    await atualizarListas();
-                } catch (erro) {
-                    mostrarMensagem(
-                        mensagem,
-                        "Não foi possível cadastrar: " + erro.message,
-                        "erro"
-                    );
-                }
-            });
-
-        document.getElementById("form-horario")
-            .addEventListener("submit", async (evento) => {
-                evento.preventDefault();
-
-                const mensagem = document.getElementById("mensagem-horario");
-                const dados = Object.fromEntries(
-                    new FormData(evento.currentTarget)
+                mostrarMensagem(
+                    mensagemPrograma,
+                    "Programa cadastrado com sucesso!",
+                    "sucesso"
                 );
 
-                mostrarMensagem(mensagem, "Salvando horário...");
+                await atualizarListas();
+            } catch (erro) {
+                mostrarMensagem(
+                    mensagemPrograma,
+                    "Não foi possível cadastrar o programa: " + erro.message,
+                    "erro"
+                );
+            } finally {
+                botao.disabled = false;
+            }
+        });
 
-                try {
-                    /*
-                     * A rota de programação já existente pode salvar
-                     * a lista completa. Antes de usar este formulário
-                     * em produção, precisamos confirmar o formato
-                     * esperado pelo server.js e pelo banco Neon.
-                     */
-                    const atual = await requisicao("/api/programacao");
+        formHorario.addEventListener("submit", async (evento) => {
+            evento.preventDefault();
 
-                    const horarios = Array.isArray(atual)
-                        ? atual
-                        : Array.isArray(atual.programacao)
-                            ? atual.programacao
-                            : [];
+            // IMPORTANTE: guardar o formulário antes de qualquer await.
+            const formulario = evento.currentTarget;
+            const botao = formulario.querySelector('button[type="submit"]');
 
-                    horarios.push({
-                        programaId: dados.programaId,
-                        inicio: dados.inicio,
-                        fim: dados.fim,
-                        descricao: dados.descricao
-                    });
+            const dados = Object.fromEntries(
+                new FormData(formulario)
+            );
 
-                    await requisicao("/api/admin/programacao", {
-                        method: "PUT",
-                        body: JSON.stringify(horarios)
-                    });
+            if (!dados.programaId) {
+                mostrarMensagem(
+                    mensagemHorario,
+                    "Selecione um programa antes de salvar.",
+                    "erro"
+                );
+                return;
+            }
 
-                    evento.currentTarget.reset();
+            if (dados.inicio >= dados.fim) {
+                mostrarMensagem(
+                    mensagemHorario,
+                    "O horário de término deve ser posterior ao início. Para programas que passam da meia-noite, será necessário tratar essa regra separadamente.",
+                    "erro"
+                );
+                return;
+            }
 
-                    mostrarMensagem(
-                        mensagem,
-                        "Horário enviado para gravação.",
-                        "sucesso"
-                    );
-                } catch (erro) {
-                    mostrarMensagem(
-                        mensagem,
-                        "Não foi possível salvar o horário: " + erro.message,
-                        "erro"
-                    );
-                }
-            });
+            botao.disabled = true;
+            mostrarMensagem(mensagemHorario, "Salvando horário...");
+
+            try {
+                const atual = await requisicao("/api/programacao");
+                const horarios = normalizarLista(atual, "programacao");
+
+                horarios.push({
+                    programaId: dados.programaId,
+                    inicio: dados.inicio,
+                    fim: dados.fim,
+                    descricao: dados.descricao
+                });
+
+                await requisicao("/api/admin/programacao", {
+                    method: "PUT",
+                    body: JSON.stringify(horarios)
+                });
+
+                // Não usar evento.currentTarget depois do await.
+                formulario.reset();
+
+                mostrarMensagem(
+                    mensagemHorario,
+                    "Horário salvo com sucesso!",
+                    "sucesso"
+                );
+
+            } catch (erro) {
+                mostrarMensagem(
+                    mensagemHorario,
+                    "Não foi possível salvar o horário: " + erro.message,
+                    "erro"
+                );
+            } finally {
+                botao.disabled = false;
+            }
+        });
 
         verificarSessao();
     </script>
