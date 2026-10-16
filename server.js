@@ -68,8 +68,10 @@ function texto(valor, limite = 200) {
 }
 
 function horarioValido(valor) {
-  return typeof valor === "string" &&
-    /^([01]\d|2[0-3]):[0-5]\d$/.test(valor);
+  return (
+    typeof valor === "string" &&
+    /^([01]\d|2[0-3]):[0-5]\d$/.test(valor)
+  );
 }
 
 function urlAudioValida(valor) {
@@ -90,8 +92,7 @@ function urlAudioValida(valor) {
   }
 }
 
-// Prepara colunas adicionais para manter compatibilidade com o painel.
-// As tabelas principais já foram criadas no Neon.
+// Prepara o banco de dados.
 async function prepararBanco() {
   await pool.query(`
     ALTER TABLE programas
@@ -125,7 +126,7 @@ async function prepararBanco() {
   console.log("Estrutura do Neon conferida.");
 }
 
-// Páginas
+// Páginas do site.
 app.get("/", (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, "index.html"));
 });
@@ -138,12 +139,14 @@ app.get("/admin.html", (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, "admin.html"));
 });
 
-app.use(express.static(PUBLIC_DIR, {
-  index: false,
-  dotfiles: "deny"
-}));
+app.use(
+  express.static(PUBLIC_DIR, {
+    index: false,
+    dotfiles: "deny"
+  })
+);
 
-// Estado do servidor
+// Estado do servidor.
 app.get("/api/health", (req, res) => {
   res.json({
     status: "online",
@@ -153,13 +156,11 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// Teste da conexão real com o Neon
+// Teste da conexão com o Neon.
 app.get("/api/teste-neon", async (req, res, next) => {
   try {
     const resultado = await pool.query(`
-      SELECT
-        NOW() AS horario,
-        current_database() AS banco
+      SELECT NOW() AS horario, current_database() AS banco
     `);
 
     res.json({
@@ -173,7 +174,7 @@ app.get("/api/teste-neon", async (req, res, next) => {
   }
 });
 
-// Lista de programas
+// Lista de programas.
 app.get("/api/programas", async (req, res, next) => {
   try {
     const resultado = await pool.query(`
@@ -190,24 +191,26 @@ app.get("/api/programas", async (req, res, next) => {
       ORDER BY nome
     `);
 
-    res.json(resultado.rows.map((p) => ({
-      id: p.codigo,
-      titulo: p.nome,
-      nome: p.nome,
-      idioma: p.idioma || "",
-      descricao: p.descricao || "",
-      audioUrl: p.url_audio || "",
-      url_audio: p.url_audio || "",
-      url: p.url_audio || "",
-      ativo: p.ativo,
-      criadoEm: p.criado_em
-    })));
+    res.json(
+      resultado.rows.map((p) => ({
+        id: p.codigo,
+        titulo: p.nome,
+        nome: p.nome,
+        idioma: p.idioma || "",
+        descricao: p.descricao || "",
+        audioUrl: p.url_audio || "",
+        url_audio: p.url_audio || "",
+        url: p.url_audio || "",
+        ativo: p.ativo,
+        criadoEm: p.criado_em
+      }))
+    );
   } catch (err) {
     next(err);
   }
 });
 
-// Lista de horários da programação
+// Lista dos horários da programação.
 app.get("/api/programacao", async (req, res, next) => {
   try {
     const resultado = await pool.query(`
@@ -225,27 +228,29 @@ app.get("/api/programacao", async (req, res, next) => {
       ORDER BY pg.dia_semana NULLS FIRST, pg.horario_inicio
     `);
 
-    res.json(resultado.rows.map((h) => {
-      const inicio = String(h.horario_inicio).slice(0, 5);
-      const fim = String(h.horario_fim).slice(0, 5);
+    res.json(
+      resultado.rows.map((h) => {
+        const inicio = String(h.horario_inicio).slice(0, 5);
+        const fim = String(h.horario_fim).slice(0, 5);
 
-      return {
-        id: h.codigo,
-        programaId: h.programa_codigo,
-        diaSemana: h.dia_semana,
-        horario: inicio,
-        inicio,
-        fim,
-        descricao: h.descricao || "",
-        ativo: h.ativo
-      };
-    }));
+        return {
+          id: h.codigo,
+          programaId: h.programa_codigo,
+          diaSemana: h.dia_semana,
+          horario: inicio,
+          inicio,
+          fim,
+          descricao: h.descricao || "",
+          ativo: h.ativo
+        };
+      })
+    );
   } catch (err) {
     next(err);
   }
 });
 
-// Login administrativo
+// Login administrativo.
 app.post("/api/admin/login", (req, res, next) => {
   const { senha } = req.body || {};
 
@@ -254,7 +259,9 @@ app.post("/api/admin/login", (req, res, next) => {
     senha.length > 1024 ||
     senha !== process.env.ADMIN_PASSWORD
   ) {
-    return res.status(401).json({ erro: "Senha incorreta." });
+    return res.status(401).json({
+      erro: "Senha incorreta."
+    });
   }
 
   req.session.regenerate((err) => {
@@ -273,12 +280,14 @@ app.post("/api/admin/login", (req, res, next) => {
   });
 });
 
+// Verifica a sessão.
 app.get("/api/admin/sessao", (req, res) => {
   res.json({
     autenticado: req.session?.admin === true
   });
 });
 
+// Logout.
 app.post("/api/admin/logout", exigirAdmin, (req, res, next) => {
   req.session.destroy((err) => {
     if (err) return next(err);
@@ -288,7 +297,7 @@ app.post("/api/admin/logout", exigirAdmin, (req, res, next) => {
   });
 });
 
-// Cadastro de programa: aceita campos do painel atual e do anterior.
+// Cadastro de programas.
 app.post("/api/admin/programas", exigirAdmin, async (req, res, next) => {
   try {
     const dados = req.body || {};
@@ -296,8 +305,8 @@ app.post("/api/admin/programas", exigirAdmin, async (req, res, next) => {
     const nome = dados.titulo ?? dados.nome;
     const idioma = dados.idioma || "Português";
     const descricao = dados.descricao || "";
-    const audio = dados.audioUrl ?? dados.url_audio ??
-      dados.url ?? dados.audio ?? "";
+    const audio =
+      dados.audioUrl ?? dados.url_audio ?? dados.url ?? dados.audio ?? "";
 
     const codigo = texto(dados.id, 100)
       ? dados.id.trim()
@@ -315,19 +324,22 @@ app.post("/api/admin/programas", exigirAdmin, async (req, res, next) => {
       });
     }
 
-    const resultado = await pool.query(`
+    const resultado = await pool.query(
+      `
       INSERT INTO programas
         (codigo_externo, nome, idioma, descricao, url_audio, ativo)
       VALUES ($1, $2, $3, $4, $5, TRUE)
       RETURNING
         id, codigo_externo, nome, idioma, descricao, url_audio, ativo
-    `, [
-      codigo,
-      nome.trim(),
-      idioma.trim(),
-      descricao.trim(),
-      audio.trim()
-    ]);
+      `,
+      [
+        codigo,
+        nome.trim(),
+        idioma.trim(),
+        descricao.trim(),
+        audio.trim()
+      ]
+    );
 
     const p = resultado.rows[0];
 
@@ -340,6 +352,7 @@ app.post("/api/admin/programas", exigirAdmin, async (req, res, next) => {
         idioma: p.idioma,
         descricao: p.descricao,
         audioUrl: p.url_audio,
+        url_audio: p.url_audio,
         url: p.url_audio,
         ativo: p.ativo
       }
@@ -355,13 +368,14 @@ app.post("/api/admin/programas", exigirAdmin, async (req, res, next) => {
   }
 });
 
-// Salva a programação completa em uma transação.
-// Aceita "horario" ou "inicio", e "fim" opcional.
+// Salva a programação completa.
+// NOVO: elimina duplicidades de dia e horário de início,
+// mantendo o último item enviado pelo painel.
 app.put(
   "/api/admin/programacao",
   exigirAdmin,
   async (req, res, next) => {
-    const lista = req.body;
+    let lista = req.body;
 
     if (!Array.isArray(lista) || lista.length > 500) {
       return res.status(400).json({
@@ -369,24 +383,54 @@ app.put(
       });
     }
 
-    const ids = new Set();
-
+    // Confere a estrutura básica antes de comparar os horários.
     for (const item of lista) {
       const inicio = item?.inicio ?? item?.horario;
-      const fim = item?.fim;
 
       if (
         !item ||
         !texto(item.programaId, 100) ||
-        (item.id !== undefined && !texto(item.id, 100)) ||
         !horarioValido(inicio) ||
-        (fim !== undefined && !horarioValido(fim)) ||
-        (item.ativo !== undefined && typeof item.ativo !== "boolean") ||
         (item.diaSemana !== undefined &&
           item.diaSemana !== null &&
           (!Number.isInteger(item.diaSemana) ||
             item.diaSemana < 0 ||
-            item.diaSemana > 6)) ||
+            item.diaSemana > 6))
+      ) {
+        return res.status(400).json({
+          erro: "Há um horário inválido na programação."
+        });
+      }
+    }
+
+    // A chave considera o dia da semana e o horário de início.
+    // Quando a chave se repete, o último item prevalece.
+    const horariosUnicos = new Map();
+
+    for (const item of lista) {
+      const inicio = item.inicio ?? item.horario;
+      const dia = item.diaSemana ?? "todos";
+      const chave = `${dia}|${inicio}`;
+
+      horariosUnicos.set(chave, item);
+    }
+
+    lista = [...horariosUnicos.values()];
+
+    if (lista.length > 500) {
+      return res.status(400).json({
+        erro: "A programação ultrapassa o limite permitido."
+      });
+    }
+
+    // Valida identificadores repetidos nos horários restantes.
+    const ids = new Set();
+
+    for (const item of lista) {
+      if (
+        (item.id !== undefined && !texto(item.id, 100)) ||
+        (item.ativo !== undefined && typeof item.ativo !== "boolean") ||
+        (item.fim !== undefined && !horarioValido(item.fim)) ||
         (item.id && ids.has(item.id))
       ) {
         return res.status(400).json({
@@ -402,18 +446,21 @@ app.put(
     try {
       await client.query("BEGIN");
 
-      // Resolve todos os programas antes de substituir a programação.
       const horariosResolvidos = [];
 
+      // Confere se todos os programas existem.
       for (const item of lista) {
         const codigoPrograma = String(item.programaId);
 
-        const programa = await client.query(`
+        const programa = await client.query(
+          `
           SELECT id
           FROM programas
           WHERE codigo_externo = $1 OR id::text = $1
           LIMIT 1
-        `, [codigoPrograma]);
+          `,
+          [codigoPrograma]
+        );
 
         if (programa.rowCount === 0) {
           throw Object.assign(
@@ -424,70 +471,87 @@ app.put(
 
         const inicio = item.inicio ?? item.horario;
 
-        // Compatibilidade com horários antigos que só informavam início:
-        // considera uma duração de uma hora, com virada de dia se necessário.
         let fim = item.fim;
 
+        // Se não houver fim, usa uma duração de uma hora.
         if (!fim) {
           const [h, m] = inicio.split(":").map(Number);
           const minutos = (h * 60 + m + 60) % (24 * 60);
-          fim = String(Math.floor(minutos / 60)).padStart(2, "0") +
+
+          fim =
+            String(Math.floor(minutos / 60)).padStart(2, "0") +
             ":" +
             String(minutos % 60).padStart(2, "0");
         }
 
         if (inicio === fim) {
           throw Object.assign(
-            new Error("O início e o fim do horário não podem ser iguais."),
+            new Error("O início e o fim não podem ser iguais."),
             { status: 400 }
           );
         }
 
         horariosResolvidos.push({
-          codigo: texto(item.id, 100) ? item.id.trim() : crypto.randomUUID(),
+          codigo: texto(item.id, 100)
+            ? item.id.trim()
+            : crypto.randomUUID(),
           programaId: programa.rows[0].id,
           diaSemana: item.diaSemana ?? null,
           inicio,
           fim,
-          descricao: typeof item.descricao === "string"
-            ? item.descricao.slice(0, 500)
-            : "",
+          descricao:
+            typeof item.descricao === "string"
+              ? item.descricao.slice(0, 500)
+              : "",
           ativo: item.ativo !== false
         });
       }
 
+      // Substitui a programação, preservando os horários
+      // que vieram na lista completa do painel.
       await client.query("DELETE FROM programacao");
 
       for (const h of horariosResolvidos) {
-        await client.query(`
+        await client.query(
+          `
           INSERT INTO programacao
             (
-              codigo_externo, programa_id, dia_semana,
-              horario_inicio, horario_fim, descricao, ativo
+              codigo_externo,
+              programa_id,
+              dia_semana,
+              horario_inicio,
+              horario_fim,
+              descricao,
+              ativo
             )
           VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, [
-          h.codigo,
-          h.programaId,
-          h.diaSemana,
-          h.inicio,
-          h.fim,
-          h.descricao,
-          h.ativo
-        ]);
+          `,
+          [
+            h.codigo,
+            h.programaId,
+            h.diaSemana,
+            h.inicio,
+            h.fim,
+            h.descricao,
+            h.ativo
+          ]
+        );
       }
 
       await client.query("COMMIT");
 
       res.json({
         sucesso: true,
-        total: horariosResolvidos.length
+        total: horariosResolvidos.length,
+        mensagem: "Programação salva com sucesso."
       });
     } catch (err) {
       await client.query("ROLLBACK");
 
       if (err.status === 400) {
-        return res.status(400).json({ erro: err.message });
+        return res.status(400).json({
+          erro: err.message
+        });
       }
 
       next(err);
@@ -497,19 +561,21 @@ app.put(
   }
 );
 
-// Erros gerais
+// Tratamento geral de erros.
 app.use((err, req, res, next) => {
   console.error("Erro na aplicação:", err.message);
 
   if (res.headersSent) return next(err);
 
   res.status(err.status || 500).json({
-    erro: err.status === 400
-      ? err.message
-      : "Ocorreu um erro interno no servidor."
+    erro:
+      err.status === 400
+        ? err.message
+        : "Ocorreu um erro interno no servidor."
   });
 });
 
+// Inicialização.
 async function iniciar() {
   try {
     await prepararBanco();
@@ -520,7 +586,10 @@ async function iniciar() {
       );
     });
   } catch (err) {
-    console.error("Não foi possível preparar o banco:", err.message);
+    console.error(
+      "Não foi possível preparar o banco:",
+      err.message
+    );
     process.exit(1);
   }
 }
