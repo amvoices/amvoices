@@ -1,4 +1,3 @@
-
 const express = require("express");
 const session = require("express-session");
 const path = require("path");
@@ -210,7 +209,7 @@ app.get("/api/programas", async (req, res, next) => {
   }
 });
 
-// Lista dos horários da programação.
+// Lista dos horários da programação antiga.
 app.get("/api/programacao", async (req, res, next) => {
   try {
     const resultado = await pool.query(`
@@ -280,7 +279,7 @@ app.post("/api/admin/login", (req, res, next) => {
   });
 });
 
-// Verifica a sessão.
+// Verifica a sessão administrativa.
 app.get("/api/admin/sessao", (req, res) => {
   res.json({
     autenticado: req.session?.admin === true
@@ -296,7 +295,6 @@ app.post("/api/admin/logout", exigirAdmin, (req, res, next) => {
     res.json({ sucesso: true });
   });
 });
-
 // Cadastro de programas.
 app.post("/api/admin/programas", exigirAdmin, async (req, res, next) => {
   try {
@@ -368,9 +366,8 @@ app.post("/api/admin/programas", exigirAdmin, async (req, res, next) => {
   }
 });
 
-// Salva a programação completa.
-// NOVO: elimina duplicidades de dia e horário de início,
-// mantendo o último item enviado pelo painel.
+// Salva a programação antiga.
+// Esta rota continua disponível para o painel atual.
 app.put(
   "/api/admin/programacao",
   exigirAdmin,
@@ -383,7 +380,6 @@ app.put(
       });
     }
 
-    // Confere a estrutura básica antes de comparar os horários.
     for (const item of lista) {
       const inicio = item?.inicio ?? item?.horario;
 
@@ -403,8 +399,6 @@ app.put(
       }
     }
 
-    // A chave considera o dia da semana e o horário de início.
-    // Quando a chave se repete, o último item prevalece.
     const horariosUnicos = new Map();
 
     for (const item of lista) {
@@ -423,7 +417,6 @@ app.put(
       });
     }
 
-    // Valida identificadores repetidos nos horários restantes.
     const ids = new Set();
 
     for (const item of lista) {
@@ -448,7 +441,6 @@ app.put(
 
       const horariosResolvidos = [];
 
-      // Confere se todos os programas existem.
       for (const item of lista) {
         const codigoPrograma = String(item.programaId);
 
@@ -473,7 +465,6 @@ app.put(
 
         let fim = item.fim;
 
-        // Se não houver fim, usa uma duração de uma hora.
         if (!fim) {
           const [h, m] = inicio.split(":").map(Number);
           const minutos = (h * 60 + m + 60) % (24 * 60);
@@ -507,8 +498,8 @@ app.put(
         });
       }
 
-      // Substitui a programação, preservando os horários
-      // que vieram na lista completa do painel.
+      // Atenção: esta exclusão afeta apenas a tabela antiga
+      // "programacao", nunca as novas tabelas de playlists.
       await client.query("DELETE FROM programacao");
 
       for (const h of horariosResolvidos) {
@@ -552,6 +543,303 @@ app.put(
         return res.status(400).json({
           erro: err.message
         });
+      }
+
+      next(err);
+    } finally {
+      client.release();
+    }
+  }
+);
+// ============================================================
+// NOVO: FAIXAS HORÁRIAS COM PLAYLISTS ORDENADAS
+// ============================================================
+
+// Lista as faixas horárias e seus áudios em ordem.
+app.get("/api/faixas-horarias", async (req, res, next) => {
+  try {
+    const resultado = await pool.query(`
+      SELECT
+        f.id,
+        f.nome,
+        f.descricao,
+        f.dia_semana,
+        TO_CHAR(f.horario_inicio, 'HH24:MI') AS inicio,
+        TO_CHAR(f.horario_fim, 'HH24:MI') AS fim,
+        f.ativo,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'ordem', pi.ordem,
+              'programaId', COALESCE(p.codigo_externo, p.id::text),
+              'titulo', p.nome,
+              'idioma', p.idioma,
+              'descricao', p.descricao,
+              'audioUrl', p.url_audio
+            )
+            ORDER BY pi.ordem
+          ) FILTER (WHERE pi.id IS NOT NULL),
+          '[]'::json
+        ) AS playlist
+      FROM faixas_horarias f
+      LEFT JOIN playlist_itens pi
+        ON pi.faixa_id = f.id AND pi.ativo = TRUE
+      LEFT JOIN programas p ON p.id = pi.programa_id
+      GROUP BY f.id
+      ORDER BY f.dia_semana NULLS FIRST, f.horario_inicio, f.id
+    `);
+
+    res.json(
+      resultado.rows.map((f) => ({
+        id: String(f.id),
+        nome: f.nome,
+        descricao: f.descricao || "",
+        diaSemana: f.dia_semana,
+        inicio: f.inicio,
+        fim: f.fim,
+        ativo: f.ativo,
+        playlist: f.playlist
+      }))
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Cria uma faixa e sua playlist inicial.
+// Cada item contém programaId e, opcionalmente, ordem.
+app.post(
+  "/api/admin/faixas-horarias",
+  exigirAdmin,
+  async (req, res, next) => {
+    const dados = req.body || {};
+    const nome = dados.nome;
+    const descricao = dados.descricao || "";
+    const diaSemana = dados.diaSemana ?? null;
+    const inicio = dados.inicio;
+    const fim = dados.fim;
+    const itens = dados.itens;
+
+    if (
+      !texto(nome, 150) ||
+      typeof descricao !== "string" ||
+      descricao.length > 1000 ||
+      !horarioValido(inicio) ||
+      !horarioValido(fim) ||
+      inicio === fim ||
+      (diaSemana !== null &&
+        (!Number.isInteger(diaSemana) ||
+          diaSemana < 0 ||
+          diaSemana > 6)) ||
+      !Array.isArray(itens) ||
+      itens.length < 1 ||
+      itens.length > 100
+    ) {
+      return res.status(400).json({
+        erro: "Confira o nome, os horários, o dia da semana e os áudios da playlist."
+      });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const faixaResult = await client.query(
+        `
+        INSERT INTO faixas_horarias
+          (nome, descricao, dia_semana, horario_inicio, horario_fim, ativo)
+        VALUES ($1, $2, $3, $4, $5, TRUE)
+        RETURNING
+          id, nome, descricao, dia_semana,
+          TO_CHAR(horario_inicio, 'HH24:MI') AS inicio,
+          TO_CHAR(horario_fim, 'HH24:MI') AS fim,
+          ativo
+        `,
+        [nome.trim(), descricao.trim(), diaSemana, inicio, fim]
+      );
+
+      const faixa = faixaResult.rows[0];
+      const ordens = new Set();
+
+      for (let i = 0; i < itens.length; i++) {
+        const item = itens[i];
+        const programaCodigo = item?.programaId;
+        const ordem = item?.ordem ?? (i + 1);
+
+        if (
+          !texto(String(programaCodigo ?? ""), 100) ||
+          !Number.isInteger(ordem) ||
+          ordem < 1 ||
+          ordens.has(ordem)
+        ) {
+          throw Object.assign(
+            new Error("Há um item inválido ou ordem repetida na playlist."),
+            { status: 400 }
+          );
+        }
+
+        ordens.add(ordem);
+
+        const programa = await client.query(
+          `
+          SELECT id
+          FROM programas
+          WHERE codigo_externo = $1 OR id::text = $1
+          LIMIT 1
+          `,
+          [String(programaCodigo)]
+        );
+
+        if (!programa.rowCount) {
+          throw Object.assign(
+            new Error("Programa não encontrado: " + programaCodigo),
+            { status: 400 }
+          );
+        }
+
+        await client.query(
+          `
+          INSERT INTO playlist_itens
+            (faixa_id, programa_id, ordem, ativo)
+          VALUES ($1, $2, $3, TRUE)
+          `,
+          [faixa.id, programa.rows[0].id, ordem]
+        );
+      }
+
+      await client.query("COMMIT");
+
+      res.status(201).json({
+        sucesso: true,
+        faixa: {
+          id: String(faixa.id),
+          nome: faixa.nome,
+          descricao: faixa.descricao,
+          diaSemana: faixa.dia_semana,
+          inicio: faixa.inicio,
+          fim: faixa.fim,
+          ativo: faixa.ativo
+        },
+        totalAudios: itens.length,
+        mensagem: "Faixa horária e playlist cadastradas com sucesso."
+      });
+    } catch (err) {
+      await client.query("ROLLBACK");
+
+      if (err.status === 400) {
+        return res.status(400).json({ erro: err.message });
+      }
+
+      next(err);
+    } finally {
+      client.release();
+    }
+  }
+);
+
+// Atualiza a playlist de uma faixa existente.
+app.put(
+  "/api/admin/faixas-horarias/:id/playlist",
+  exigirAdmin,
+  async (req, res, next) => {
+    const faixaId = req.params.id;
+    const itens = req.body?.itens;
+
+    if (
+      !/^\d+$/.test(faixaId) ||
+      !Array.isArray(itens) ||
+      itens.length < 1 ||
+      itens.length > 100
+    ) {
+      return res.status(400).json({
+        erro: "Informe uma faixa válida e uma playlist com até 100 áudios."
+      });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const faixa = await client.query(
+        "SELECT id FROM faixas_horarias WHERE id = $1 FOR UPDATE",
+        [faixaId]
+      );
+
+      if (!faixa.rowCount) {
+        throw Object.assign(
+          new Error("Faixa horária não encontrada."),
+          { status: 400 }
+        );
+      }
+
+      await client.query(
+        "DELETE FROM playlist_itens WHERE faixa_id = $1",
+        [faixaId]
+      );
+
+      const ordens = new Set();
+
+      for (let i = 0; i < itens.length; i++) {
+        const item = itens[i];
+        const programaCodigo = item?.programaId;
+        const ordem = item?.ordem ?? (i + 1);
+
+        if (
+          !texto(String(programaCodigo ?? ""), 100) ||
+          !Number.isInteger(ordem) ||
+          ordem < 1 ||
+          ordens.has(ordem)
+        ) {
+          throw Object.assign(
+            new Error("Há um item inválido ou ordem repetida na playlist."),
+            { status: 400 }
+          );
+        }
+
+        ordens.add(ordem);
+
+        const programa = await client.query(
+          `
+          SELECT id
+          FROM programas
+          WHERE codigo_externo = $1 OR id::text = $1
+          LIMIT 1
+          `,
+          [String(programaCodigo)]
+        );
+
+        if (!programa.rowCount) {
+          throw Object.assign(
+            new Error("Programa não encontrado: " + programaCodigo),
+            { status: 400 }
+          );
+        }
+
+        await client.query(
+          `
+          INSERT INTO playlist_itens
+            (faixa_id, programa_id, ordem, ativo)
+          VALUES ($1, $2, $3, TRUE)
+          `,
+          [faixaId, programa.rows[0].id, ordem]
+        );
+      }
+
+      await client.query("COMMIT");
+
+      res.json({
+        sucesso: true,
+        faixaId: String(faixaId),
+        totalAudios: itens.length,
+        mensagem: "Playlist atualizada com sucesso."
+      });
+    } catch (err) {
+      await client.query("ROLLBACK");
+
+      if (err.status === 400) {
+        return res.status(400).json({ erro: err.message });
       }
 
       next(err);
