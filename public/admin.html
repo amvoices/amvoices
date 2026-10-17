@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -43,6 +44,7 @@
         .playlist-linha select{min-width:0;width:100%;padding:11px;color:var(--texto);background:var(--fundo-secundario);border:1px solid var(--borda);border-radius:var(--raio-pequeno)}
         .playlist-posicao{font-size:13px;color:var(--texto-secundario);font-weight:bold}
         .botao-mini{min-height:38px;padding:8px 11px;border:1px solid var(--borda);border-radius:10px;background:var(--cartao-hover);color:var(--texto);cursor:pointer}
+        .botao-mini:disabled{opacity:.4;cursor:not-allowed}
         .faixa-playlist{margin:10px 0 0;padding-left:22px;color:var(--texto-secundario);font-size:13px}
         @media(max-width:600px){
             .admin-container{padding:25px 14px 45px}
@@ -117,10 +119,10 @@
             </section>
 
             <section class="admin-cartao">
-                <h2>Criar faixa horária e playlist</h2>
+                <h2 id="titulo-form-faixa">Criar faixa horária e playlist</h2>
                 <p class="admin-ajuda">
                     Defina um horário e adicione vários áudios na ordem desejada.
-                    Todos serão salvos juntos numa única faixa. Os horários seguem Manaus.
+                    Os horários seguem Manaus.
                 </p>
 
                 <form id="form-horario">
@@ -166,12 +168,13 @@
                                 <button id="botao-adicionar-audio" type="button" class="admin-botao secundario">+ Adicionar áudio</button>
                             </div>
                             <p class="admin-ajuda" style="margin:8px 0 0">
-                                Use as setas para alterar a ordem. Os programas precisam estar cadastrados primeiro.
+                                Use as setas para alterar a ordem e × para remover um áudio.
                             </p>
                         </div>
 
                         <div class="campo completo">
                             <button id="botao-salvar-faixa" type="submit" class="admin-botao">Salvar faixa horária e playlist</button>
+                            <button id="botao-cancelar-edicao" type="button" class="admin-botao secundario admin-oculto">Cancelar edição</button>
                         </div>
                     </div>
                 </form>
@@ -180,7 +183,7 @@
 
             <section class="admin-cartao">
                 <h2>Faixas horárias cadastradas</h2>
-                <p class="admin-ajuda">Confira as faixas e os áudios de cada playlist.</p>
+                <p class="admin-ajuda">Confira as faixas e edite as playlists existentes.</p>
                 <div id="lista-faixas" class="admin-lista">
                     <p class="admin-ajuda">Carregando faixas...</p>
                 </div>
@@ -223,8 +226,20 @@
         const listaFaixas = document.getElementById("lista-faixas");
         const editorPlaylist = document.getElementById("editor-playlist");
         const botaoAdicionarAudio = document.getElementById("botao-adicionar-audio");
+        const botaoSalvarFaixa = document.getElementById("botao-salvar-faixa");
+        const botaoCancelarEdicao = document.getElementById("botao-cancelar-edicao");
+        const tituloFormFaixa = document.getElementById("titulo-form-faixa");
+
+        const camposFaixa = [
+            document.getElementById("faixa-nome"),
+            document.getElementById("faixa-descricao"),
+            document.getElementById("faixa-dia"),
+            document.getElementById("horario-inicio"),
+            document.getElementById("horario-fim")
+        ];
 
         let programasDisponiveis = [];
+        let faixaEmEdicaoId = null;
 
         function mostrarMensagem(elemento, texto, tipo = "") {
             elemento.textContent = texto;
@@ -269,7 +284,11 @@
         }
 
         function idPrograma(programa) {
-            return programa.id ?? programa.programaId ?? programa.codigo_externo ?? programa.codigoExterno;
+            return programa.id ??
+                programa.programaId ??
+                programa.programa_id ??
+                programa.codigo_externo ??
+                programa.codigoExterno;
         }
 
         function nomePrograma(programa) {
@@ -278,6 +297,7 @@
 
         function criarSeletorPrograma(valor = "") {
             const select = document.createElement("select");
+            select.className = "playlist-programa";
             select.setAttribute("aria-label", "Selecione o áudio da playlist");
             select.required = true;
 
@@ -295,7 +315,7 @@
                 const opcao = document.createElement("option");
                 opcao.value = String(id);
                 opcao.textContent = nomePrograma(programa);
-                if (String(id) === String(valor)) opcao.selected = true;
+                opcao.selected = String(id) === String(valor);
                 select.appendChild(opcao);
             }
 
@@ -307,6 +327,7 @@
 
             linhas.forEach((linha, indice) => {
                 linha.querySelector(".playlist-posicao").textContent = `Áudio ${indice + 1}`;
+
                 const botoes = linha.querySelectorAll("button");
                 botoes[0].disabled = indice === 0;
                 botoes[1].disabled = indice === linhas.length - 1;
@@ -359,13 +380,20 @@
             remover.className = "botao-mini";
             remover.textContent = "×";
             remover.title = "Remover áudio";
+            remover.setAttribute("aria-label", "Remover áudio da playlist");
             remover.addEventListener("click", () => {
                 if (editorPlaylist.children.length <= 1) {
-                    mostrarMensagem(mensagemHorario, "A playlist precisa ter pelo menos um áudio.", "erro");
+                    mostrarMensagem(
+                        mensagemHorario,
+                        "A playlist precisa ter pelo menos um áudio.",
+                        "erro"
+                    );
                     return;
                 }
+
                 linha.remove();
                 atualizarPosicoesPlaylist();
+                mostrarMensagem(mensagemHorario, "");
             });
 
             controles.append(subir, descer, remover);
@@ -373,6 +401,26 @@
             editorPlaylist.appendChild(linha);
             atualizarPosicoesPlaylist();
         }
+
+        function cancelarEdicaoFaixa() {
+            faixaEmEdicaoId = null;
+            formHorario.reset();
+
+            camposFaixa.forEach(campo => {
+                campo.disabled = false;
+            });
+
+            editorPlaylist.replaceChildren();
+            adicionarLinhaPlaylist();
+
+            botaoSalvarFaixa.textContent = "Salvar faixa horária e playlist";
+            botaoCancelarEdicao.classList.add("admin-oculto");
+            tituloFormFaixa.textContent = "Criar faixa horária e playlist";
+
+            mostrarMensagem(mensagemHorario, "");
+        }
+
+        botaoCancelarEdicao.addEventListener("click", cancelarEdicaoFaixa);
 
         async function carregarProgramas() {
             const dados = await requisicao("/api/programas");
@@ -392,8 +440,11 @@
                     cartao.appendChild(criarTexto(programa.descricao));
                 }
 
-                const urlAudio = programa.audioUrl || programa.url_audio ||
-                    programa.url || programa.audio || programa.link;
+                const urlAudio = programa.audioUrl ||
+                    programa.url_audio ||
+                    programa.url ||
+                    programa.audio ||
+                    programa.link;
 
                 if (urlAudio) {
                     const link = document.createElement("a");
@@ -411,12 +462,14 @@
                 listaProgramas.appendChild(criarTexto("Nenhum programa cadastrado."));
             }
 
-            if (!editorPlaylist.children.length) {
+            // Atualiza os seletores sem perder a seleção atual.
+            const valores = [...editorPlaylist.children].map(
+                linha => linha.querySelector("select")?.value || ""
+            );
+
+            if (!valores.length) {
                 adicionarLinhaPlaylist();
             } else {
-                const valores = [...editorPlaylist.children].map(
-                    linha => linha.querySelector("select")?.value || ""
-                );
                 editorPlaylist.replaceChildren();
                 valores.forEach(valor => adicionarLinhaPlaylist(valor));
             }
@@ -424,8 +477,83 @@
 
         function rotuloDia(dia) {
             if (dia === null || dia === undefined || dia === "") return "Todos os dias";
-            return ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira",
-                "Quinta-feira", "Sexta-feira", "Sábado"][Number(dia)] || "Dia não informado";
+
+            return [
+                "Domingo",
+                "Segunda-feira",
+                "Terça-feira",
+                "Quarta-feira",
+                "Quinta-feira",
+                "Sexta-feira",
+                "Sábado"
+            ][Number(dia)] || "Dia não informado";
+        }
+
+        function idProgramaDaPlaylist(item) {
+            return item.programaId ??
+                item.programa_id ??
+                item.programaIdRef ??
+                item.programa_id_ref ??
+                "";
+        }
+
+        function iniciarEdicaoFaixa(faixa) {
+            if (faixa.id === undefined || faixa.id === null) {
+                mostrarMensagem(
+                    mensagemHorario,
+                    "Não foi possível identificar o ID desta faixa horária.",
+                    "erro"
+                );
+                return;
+            }
+
+            faixaEmEdicaoId = String(faixa.id);
+
+            document.getElementById("faixa-nome").value = faixa.nome || "";
+            document.getElementById("faixa-descricao").value = faixa.descricao || "";
+
+            const dia = faixa.dia_semana ?? faixa.diaSemana ?? "";
+            document.getElementById("faixa-dia").value =
+                dia === null ? "" : String(dia);
+
+            document.getElementById("horario-inicio").value =
+                String(faixa.horario_inicio || faixa.inicio || "").slice(0, 5);
+
+            document.getElementById("horario-fim").value =
+                String(faixa.horario_fim || faixa.fim || "").slice(0, 5);
+
+            // Nesta edição, só a playlist pode ser alterada.
+            camposFaixa.forEach(campo => {
+                campo.disabled = true;
+            });
+
+            editorPlaylist.replaceChildren();
+
+            const playlist = Array.isArray(faixa.playlist)
+                ? faixa.playlist
+                : [];
+
+            playlist.forEach(item => {
+                adicionarLinhaPlaylist(idProgramaDaPlaylist(item));
+            });
+
+            if (!playlist.length) {
+                adicionarLinhaPlaylist();
+            }
+
+            botaoSalvarFaixa.textContent = "Salvar alterações da playlist";
+            botaoCancelarEdicao.classList.remove("admin-oculto");
+            tituloFormFaixa.textContent = `Editando playlist: ${faixa.nome || "Faixa horária"}`;
+
+            mostrarMensagem(
+                mensagemHorario,
+                "Edite a ordem dos áudios ou remova o que não deseja. Depois, salve as alterações."
+            );
+
+            formHorario.scrollIntoView({
+                behavior: "smooth",
+                block: "start"
+            });
         }
 
         async function carregarFaixas() {
@@ -447,16 +575,28 @@
                 titulo.textContent = faixa.nome || "Faixa horária";
                 cartao.appendChild(titulo);
 
-                const inicio = String(faixa.horario_inicio || faixa.inicio || "").slice(0, 5);
-                const fim = String(faixa.horario_fim || faixa.fim || "").slice(0, 5);
+                const inicio = String(
+                    faixa.horario_inicio || faixa.inicio || ""
+                ).slice(0, 5);
+
+                const fim = String(
+                    faixa.horario_fim || faixa.fim || ""
+                ).slice(0, 5);
+
                 const dia = faixa.dia_semana ?? faixa.diaSemana ?? null;
                 const estado = faixa.ativo === false ? "Inativa" : "Ativa";
 
-                cartao.appendChild(criarTexto(`${inicio}–${fim} · ${rotuloDia(dia)} · ${estado}`));
+                cartao.appendChild(
+                    criarTexto(`${inicio}–${fim} · ${rotuloDia(dia)} · ${estado}`)
+                );
 
-                if (faixa.descricao) cartao.appendChild(criarTexto(faixa.descricao));
+                if (faixa.descricao) {
+                    cartao.appendChild(criarTexto(faixa.descricao));
+                }
 
-                const itensPlaylist = Array.isArray(faixa.playlist) ? faixa.playlist : [];
+                const itensPlaylist = Array.isArray(faixa.playlist)
+                    ? faixa.playlist
+                    : [];
 
                 if (itensPlaylist.length) {
                     const lista = document.createElement("ol");
@@ -464,17 +604,33 @@
 
                     for (const item of itensPlaylist) {
                         const li = document.createElement("li");
-                        li.textContent = item.nome || item.programa_nome ||
-                            item.titulo || item.descricao ||
-                            `Programa ${item.programaId || item.programa_id || ""}`;
+                        li.textContent = item.nome ||
+                            item.programa_nome ||
+                            item.titulo ||
+                            item.descricao ||
+                            `Programa ${idProgramaDaPlaylist(item)}`;
+
                         lista.appendChild(li);
                     }
 
                     cartao.appendChild(lista);
                 } else {
-                    cartao.appendChild(criarTexto("A API não retornou itens da playlist para esta faixa."));
+                    cartao.appendChild(
+                        criarTexto("A API não retornou itens da playlist para esta faixa.")
+                    );
                 }
 
+                const botaoEditar = document.createElement("button");
+                botaoEditar.type = "button";
+                botaoEditar.className = "admin-botao secundario";
+                botaoEditar.textContent = "Editar playlist";
+                botaoEditar.style.marginTop = "14px";
+
+                botaoEditar.addEventListener("click", () => {
+                    iniciarEdicaoFaixa(faixa);
+                });
+
+                cartao.appendChild(botaoEditar);
                 listaFaixas.appendChild(cartao);
             }
         }
@@ -487,14 +643,20 @@
                 carregarFaixas()
             ]);
 
-            const falhas = resultados.filter(resultado => resultado.status === "rejected");
+            const falhas = resultados.filter(
+                resultado => resultado.status === "rejected"
+            );
 
             if (falhas.length) {
                 const detalhes = falhas.map(resultado =>
                     resultado.reason?.message || "Erro desconhecido"
                 ).join(" | ");
 
-                mostrarMensagem(mensagemListas, "Não foi possível atualizar tudo: " + detalhes, "erro");
+                mostrarMensagem(
+                    mensagemListas,
+                    "Não foi possível atualizar tudo: " + detalhes,
+                    "erro"
+                );
             } else {
                 mostrarMensagem(
                     mensagemListas,
@@ -518,6 +680,7 @@
 
         formLogin.addEventListener("submit", async evento => {
             evento.preventDefault();
+
             const botao = formLogin.querySelector('button[type="submit"]');
             botao.disabled = true;
             mostrarMensagem(mensagemLogin, "Verificando acesso...");
@@ -534,7 +697,11 @@
                 mostrarMensagem(mensagemLogin, "");
                 await atualizarListas();
             } catch (erro) {
-                mostrarMensagem(mensagemLogin, "Não foi possível entrar: " + erro.message, "erro");
+                mostrarMensagem(
+                    mensagemLogin,
+                    "Não foi possível entrar: " + erro.message,
+                    "erro"
+                );
             } finally {
                 botao.disabled = false;
             }
@@ -555,6 +722,7 @@
 
         formPrograma.addEventListener("submit", async evento => {
             evento.preventDefault();
+
             const formulario = evento.currentTarget;
             const botao = formulario.querySelector('button[type="submit"]');
             const dados = Object.fromEntries(new FormData(formulario));
@@ -569,80 +737,147 @@
                 });
 
                 formulario.reset();
-                mostrarMensagem(mensagemPrograma, "Programa cadastrado com sucesso!", "sucesso");
-                await atualizarListas();
-            } catch (erro) {
-                mostrarMensagem(mensagemPrograma, "Não foi possível cadastrar o programa: " + erro.message, "erro");
-            } finally {
-                botao.disabled = false;
-            }
-        });
-
-        botaoAdicionarAudio.addEventListener("click", () => adicionarLinhaPlaylist());
-
-        formHorario.addEventListener("submit", async evento => {
-            evento.preventDefault();
-
-            const formulario = evento.currentTarget;
-            const botao = document.getElementById("botao-salvar-faixa");
-            const dados = Object.fromEntries(new FormData(formulario));
-
-            if (dados.inicio >= dados.fim) {
                 mostrarMensagem(
-                    mensagemHorario,
-                    "O término deve ser posterior ao início. Faixas que atravessam a meia-noite ainda precisam de tratamento específico.",
-                    "erro"
-                );
-                return;
-            }
-
-            const itens = [...editorPlaylist.querySelectorAll("select")].map((seletor, indice) => ({
-                programaId: seletor.value,
-                ordem: indice + 1
-            }));
-
-            if (!itens.length || itens.some(item => !item.programaId)) {
-                mostrarMensagem(mensagemHorario, "Selecione um programa em cada posição da playlist.", "erro");
-                return;
-            }
-
-            const corpo = {
-                nome: dados.nome.trim(),
-                descricao: dados.descricao.trim(),
-                diaSemana: dados.diaSemana === "" ? null : Number(dados.diaSemana),
-                inicio: dados.inicio,
-                fim: dados.fim,
-                itens
-            };
-
-            botao.disabled = true;
-            mostrarMensagem(mensagemHorario, "Salvando faixa e playlist...");
-
-            try {
-                await requisicao("/api/admin/faixas-horarias", {
-                    method: "POST",
-                    body: JSON.stringify(corpo)
-                });
-
-                formulario.reset();
-                editorPlaylist.replaceChildren();
-                adicionarLinhaPlaylist();
-
-                mostrarMensagem(
-                    mensagemHorario,
-                    "Faixa horária e playlist salvas com sucesso!",
+                    mensagemPrograma,
+                    "Programa cadastrado com sucesso!",
                     "sucesso"
                 );
 
                 await atualizarListas();
             } catch (erro) {
-                mostrarMensagem(mensagemHorario, "Não foi possível salvar a faixa: " + erro.message, "erro");
+                mostrarMensagem(
+                    mensagemPrograma,
+                    "Não foi possível cadastrar o programa: " + erro.message,
+                    "erro"
+                );
             } finally {
                 botao.disabled = false;
             }
         });
 
-        document.getElementById("botao-atualizar").addEventListener("click", atualizarListas);
+        botaoAdicionarAudio.addEventListener("click", () => {
+            adicionarLinhaPlaylist();
+        });
+
+        formHorario.addEventListener("submit", async evento => {
+            evento.preventDefault();
+
+            const dados = Object.fromEntries(new FormData(formHorario));
+
+            const seletores = [
+                ...editorPlaylist.querySelectorAll(".playlist-programa")
+            ];
+
+            const ids = seletores.map(seletor => seletor.value);
+
+            if (!ids.length || ids.some(id => !id)) {
+                mostrarMensagem(
+                    mensagemHorario,
+                    "Selecione um programa em cada posição da playlist.",
+                    "erro"
+                );
+                return;
+            }
+
+            if (new Set(ids).size !== ids.length) {
+                mostrarMensagem(
+                    mensagemHorario,
+                    "O mesmo programa não pode aparecer duas vezes na mesma playlist.",
+                    "erro"
+                );
+                return;
+            }
+
+            // Na criação, valida os dados da nova faixa.
+            if (faixaEmEdicaoId === null) {
+                if (dados.inicio >= dados.fim) {
+                    mostrarMensagem(
+                        mensagemHorario,
+                        "O término deve ser posterior ao início. Faixas que atravessam a meia-noite ainda precisam de tratamento específico.",
+                        "erro"
+                    );
+                    return;
+                }
+            }
+
+            const itens = ids.map((programaId, indice) => ({
+                programaId,
+                ordem: indice + 1
+            }));
+
+            botaoSalvarFaixa.disabled = true;
+
+            try {
+                if (faixaEmEdicaoId !== null) {
+                    mostrarMensagem(
+                        mensagemHorario,
+                        "Salvando alterações da playlist no Neon..."
+                    );
+
+                    await requisicao(
+                        `/api/admin/faixas-horarias/${encodeURIComponent(faixaEmEdicaoId)}/playlist`,
+                        {
+                            method: "PUT",
+                            body: JSON.stringify({ itens })
+                        }
+                    );
+
+                    cancelarEdicaoFaixa();
+
+                    mostrarMensagem(
+                        mensagemHorario,
+                        "Playlist atualizada com sucesso!",
+                        "sucesso"
+                    );
+                } else {
+                    const corpo = {
+                        nome: dados.nome.trim(),
+                        descricao: (dados.descricao || "").trim(),
+                        diaSemana: dados.diaSemana === ""
+                            ? null
+                            : Number(dados.diaSemana),
+                        inicio: dados.inicio,
+                        fim: dados.fim,
+                        itens
+                    };
+
+                    mostrarMensagem(
+                        mensagemHorario,
+                        "Salvando faixa e playlist..."
+                    );
+
+                    await requisicao("/api/admin/faixas-horarias", {
+                        method: "POST",
+                        body: JSON.stringify(corpo)
+                    });
+
+                    formHorario.reset();
+                    editorPlaylist.replaceChildren();
+                    adicionarLinhaPlaylist();
+
+                    mostrarMensagem(
+                        mensagemHorario,
+                        "Faixa horária e playlist salvas com sucesso!",
+                        "sucesso"
+                    );
+                }
+
+                await atualizarListas();
+            } catch (erro) {
+                mostrarMensagem(
+                    mensagemHorario,
+                    "Não foi possível salvar: " + erro.message,
+                    "erro"
+                );
+            } finally {
+                botaoSalvarFaixa.disabled = false;
+            }
+        });
+
+        document.getElementById("botao-atualizar").addEventListener(
+            "click",
+            atualizarListas
+        );
 
         adicionarLinhaPlaylist();
         verificarSessao();
