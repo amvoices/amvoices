@@ -1,710 +1,897 @@
 
-"use strict";
-
-// Amazon Voices Radio — Player com playlist e programação automática.
-
 const API = {
-  faixas: "/api/faixas-horarias",
-  programas: "/api/programas"
+    faixas: "/api/faixas-horarias",
+    programas: "/api/programas"
 };
 
 const FUSO_HORARIO = "America/Manaus";
 
 const el = {
-  audio: document.getElementById("audio-radio"),
-  botao: document.getElementById("botao-play"),
-  icone: document.getElementById("icone-play"),
-  texto: document.getElementById("texto-play"),
-  status: document.getElementById("status-audio"),
-  programa: document.getElementById("programa-atual"),
-  descricao: document.getElementById("descricao-programa"),
-  inicio: document.getElementById("horario-inicio"),
-  fim: document.getElementById("horario-fim"),
-  lista: document.getElementById("lista-programacao"),
-  data: document.getElementById("data-programacao"),
-  ano: document.getElementById("ano-atual")
+    audio: document.getElementById("audio-radio"),
+    botaoPlay: document.getElementById("botao-play"),
+    iconePlay: document.getElementById("icone-play"),
+    textoPlay: document.getElementById("texto-play"),
+    programaAtual: document.getElementById("programa-atual"),
+    descricaoPrograma: document.getElementById("descricao-programa"),
+    horarioInicio: document.getElementById("horario-inicio"),
+    horarioFim: document.getElementById("horario-fim"),
+    statusAudio: document.getElementById("status-audio"),
+    listaProgramacao: document.getElementById("lista-programacao"),
+    dataProgramacao: document.getElementById("data-programacao"),
+    anoAtual: document.getElementById("ano-atual")
 };
 
 let faixas = [];
 let programas = [];
-let faixaEmReproducao = null;
 let playlistAtual = [];
 let indiceAtual = 0;
-let tocando = false;
-let carregando = false;
+let faixaAtual = null;
+let reproduzindo = false;
 let verificacaoHorario = null;
+let audioCarregado = false;
+
+/* --------------------------------------------------
+   FUNÇÕES GERAIS
+-------------------------------------------------- */
 
 function status(mensagem) {
-  if (el.status) el.status.textContent = mensagem;
+    if (el.statusAudio) {
+        el.statusAudio.textContent = mensagem;
+    }
 }
 
 function normalizar(valor) {
-  return String(valor ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
+    return String(valor ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
 }
 
 function escapar(valor) {
-  return String(valor ?? "").replace(/[&<>"']/g, caractere => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  })[caractere]);
+    return String(valor ?? "").replace(/[&<>"']/g, caractere => {
+        const entidades = {
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#39;"
+        };
+
+        return entidades[caractere];
+    });
 }
 
-function estaAtivo(item) {
-  return item?.ativo !== false &&
-    item?.ativo !== 0 &&
-    item?.ativo !== "false";
+function estaAtivo(valor) {
+    if (valor === false || valor === 0 || valor === "0") {
+        return false;
+    }
+
+    if (typeof valor === "string") {
+        return !["false", "inativo", "não", "nao"].includes(
+            normalizar(valor)
+        );
+    }
+
+    return true;
 }
 
 async function buscarJSON(url) {
-  const resposta = await fetch(url, {
-    headers: { Accept: "application/json" },
-    cache: "no-store"
-  });
+    const resposta = await fetch(url, {
+        method: "GET",
+        headers: {
+            Accept: "application/json"
+        },
+        cache: "no-store"
+    });
 
-  if (!resposta.ok) {
-    throw new Error(`${url}: HTTP ${resposta.status}`);
-  }
+    if (!resposta.ok) {
+        throw new Error(`Erro ao consultar ${url}: ${resposta.status}`);
+    }
 
-  const dados = await resposta.json();
-
-  if (Array.isArray(dados)) return dados;
-  if (Array.isArray(dados?.dados)) return dados.dados;
-  if (Array.isArray(dados?.programas)) return dados.programas;
-
-  return [];
+    return resposta.json();
 }
 
-// --------------------------------------------------
-// HORÁRIO LOCAL: MANAUS
-// --------------------------------------------------
+function obterAudio(url) {
+    if (typeof url !== "string" || !url.trim()) {
+        return "";
+    }
 
-function partesHora() {
-  const partes = new Intl.DateTimeFormat("en-GB", {
-    timeZone: FUSO_HORARIO,
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23"
-  }).formatToParts(new Date());
+    try {
+        const endereco = new URL(url.trim());
 
-  const obter = tipo =>
-    partes.find(p => p.type === tipo)?.value ?? "00";
+        if (endereco.protocol !== "https:" && endereco.protocol !== "http:") {
+            return "";
+        }
 
-  const dias = {
-    Sun: 0, Mon: 1, Tue: 2, Wed: 3,
-    Thu: 4, Fri: 5, Sat: 6
-  };
+        return endereco.href;
+    } catch {
+        return "";
+    }
+}
 
-  return {
-    dia: dias[obter("weekday")],
-    hora: obter("hour"),
-    minuto: obter("minute"),
-    segundo: obter("second")
-  };
+function obterPdf(url) {
+    if (typeof url !== "string" || !url.trim()) {
+        return "";
+    }
+
+    try {
+        const endereco = new URL(url.trim());
+
+        if (endereco.protocol !== "https:") {
+            return "";
+        }
+
+        return endereco.href;
+    } catch {
+        return "";
+    }
+}
+
+/* --------------------------------------------------
+   DATA E HORÁRIO DE MANAUS
+-------------------------------------------------- */
+
+function partesHora(data = new Date()) {
+    const partes = new Intl.DateTimeFormat("en-CA", {
+        timeZone: FUSO_HORARIO,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        weekday: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23"
+    }).formatToParts(data);
+
+    const resultado = {};
+
+    for (const parte of partes) {
+        if (parte.type !== "literal") {
+            resultado[parte.type] = parte.value;
+        }
+    }
+
+    return resultado;
 }
 
 function segundosAtuais() {
-  const p = partesHora();
+    const partes = partesHora();
 
-  return Number(p.hora) * 3600 +
-    Number(p.minuto) * 60 +
-    Number(p.segundo);
+    return (
+        Number(partes.hour) * 3600 +
+        Number(partes.minute) * 60 +
+        Number(partes.second)
+    );
 }
 
-function diaCorresponde(dia) {
-  if (dia === null || dia === undefined || dia === "") {
-    return true;
-  }
+function diaAtualManaus() {
+    const partes = partesHora();
+    const dias = {
+        Sun: 0,
+        Mon: 1,
+        Tue: 2,
+        Wed: 3,
+        Thu: 4,
+        Fri: 5,
+        Sat: 6
+    };
 
-  const atual = partesHora().dia;
-
-  if (typeof dia === "number" || /^\d+$/.test(String(dia))) {
-    return Number(dia) === atual;
-  }
-
-  const nomes = {
-    domingo: 0, dom: 0, sunday: 0,
-    segunda: 1, "segunda-feira": 1, seg: 1, monday: 1,
-    terca: 2, "terca-feira": 2, ter: 2, tuesday: 2,
-    quarta: 3, "quarta-feira": 3, qua: 3, wednesday: 3,
-    quinta: 4, "quinta-feira": 4, qui: 4, thursday: 4,
-    sexta: 5, sex: 5, friday: 5,
-    sabado: 6, sab: 6, saturday: 6
-  };
-
-  return nomes[normalizar(dia)] === atual;
+    return dias[partes.weekday];
 }
 
-function paraSegundos(hora) {
-  const resultado = String(hora ?? "").match(/^(\d{1,2}):(\d{2})/);
+function dataAtualManaus() {
+    const partes = partesHora();
 
-  if (!resultado) return null;
+    return `${partes.day}/${partes.month}/${partes.year}`;
+}
 
-  return Number(resultado[1]) * 3600 +
-    Number(resultado[2]) * 60;
+function diaCorresponde(diaSemana) {
+    if (
+        diaSemana === null ||
+        diaSemana === undefined ||
+        diaSemana === ""
+    ) {
+        return true;
+    }
+
+    const dias = Array.isArray(diaSemana)
+        ? diaSemana
+        : String(diaSemana).split(",");
+
+    return dias.some(dia => {
+        const valor = String(dia).trim().toLowerCase();
+
+        if (valor === "" || valor === "todos") {
+            return true;
+        }
+
+        const numero = Number(valor);
+
+        if (Number.isInteger(numero) && numero >= 0 && numero <= 6) {
+            return numero === diaAtualManaus();
+        }
+
+        const nomesDias = {
+            domingo: 0,
+            dom: 0,
+            segunda: 1,
+            "segunda-feira": 1,
+            seg: 1,
+            terca: 2,
+            "terca-feira": 2,
+            ter: 2,
+            quarta: 3,
+            "quarta-feira": 3,
+            qua: 3,
+            quinta: 4,
+            "quinta-feira": 4,
+            qui: 4,
+            sexta: 5,
+            "sexta-feira": 5,
+            sex: 5,
+            sabado: 6,
+            sab: 6
+        };
+
+        return nomesDias[normalizar(valor)] === diaAtualManaus();
+    });
+}
+
+function paraSegundos(horario) {
+    if (!horario) {
+        return null;
+    }
+
+    const partes = String(horario).split(":");
+
+    if (partes.length < 2) {
+        return null;
+    }
+
+    const horas = Number(partes[0]);
+    const minutos = Number(partes[1]);
+    const segundos = Number(partes[2] || 0);
+
+    if (
+        !Number.isFinite(horas) ||
+        !Number.isFinite(minutos) ||
+        !Number.isFinite(segundos) ||
+        horas < 0 ||
+        horas > 23 ||
+        minutos < 0 ||
+        minutos > 59 ||
+        segundos < 0 ||
+        segundos > 59
+    ) {
+        return null;
+    }
+
+    return horas * 3600 + minutos * 60 + segundos;
 }
 
 function horarioValido(faixa) {
-  const inicio = paraSegundos(faixa.inicio);
-  const fim = paraSegundos(faixa.fim);
-  const agora = segundosAtuais();
+    const inicio = paraSegundos(faixa.inicio);
+    const fim = paraSegundos(faixa.fim);
+    const agora = segundosAtuais();
 
-  if (inicio === null || fim === null || inicio === fim) {
-    return false;
-  }
-
-  if (inicio < fim) {
-    return agora >= inicio && agora < fim;
-  }
-
-  // Aceita horários que atravessam a meia-noite.
-  return agora >= inicio || agora < fim;
-}
-
-// --------------------------------------------------
-// ÁUDIOS E PLAYLISTS
-// --------------------------------------------------
-
-function obterAudio(item) {
-  const url =
-    item?.audioUrl ??
-    item?.url_audio ??
-    item?.url ??
-    item?.audio ??
-    "";
-
-  if (typeof url !== "string" || !url.trim()) return "";
-
-  try {
-    const endereco = new URL(url.trim(), window.location.origin);
-
-    if (!["http:", "https:"].includes(endereco.protocol)) {
-      return "";
+    if (inicio === null || fim === null) {
+        return false;
     }
 
-    return endereco.href;
-  } catch {
-    return "";
-  }
+    if (inicio === fim) {
+        return true;
+    }
+
+    if (inicio < fim) {
+        return agora >= inicio && agora < fim;
+    }
+
+    // Também permite programações que passam da meia-noite.
+    return agora >= inicio || agora < fim;
+}
+
+/* --------------------------------------------------
+   PROGRAMAS E PLAYLISTS
+-------------------------------------------------- */
+
+function obterListaDaFaixa(faixa) {
+    if (!faixa || !Array.isArray(faixa.playlist)) {
+        return [];
+    }
+
+    return [...faixa.playlist].sort((a, b) => {
+        return Number(a.ordem || 0) - Number(b.ordem || 0);
+    });
+}
+
+function nomeDoPrograma(item) {
+    return (
+        item.titulo ||
+        item.nome ||
+        item.programaNome ||
+        item.programa_nome ||
+        "Programa sem título"
+    );
+}
+
+function descricaoDoPrograma(item) {
+    return item.descricao || "";
 }
 
 function prepararPlaylist(faixa) {
-  if (!faixa || !Array.isArray(faixa.playlist)) return [];
-
-  return faixa.playlist
-    .filter(item => estaAtivo(item) && obterAudio(item))
-    .sort((a, b) => Number(a.ordem ?? 0) - Number(b.ordem ?? 0))
-    .map(item => ({
-      nome: item.titulo ?? item.nome ?? "Áudio da rádio",
-      descricao: item.descricao ?? "",
-      audio: obterAudio(item)
-    }));
-}
-
-// --------------------------------------------------
-// IDENTIFICAÇÃO DA PROGRAMAÇÃO
-// --------------------------------------------------
-
-function encontrarFaixaAtiva() {
-  return faixas.find(faixa =>
-    estaAtivo(faixa) &&
-    diaCorresponde(faixa.diaSemana ?? faixa.dia_semana) &&
-    horarioValido(faixa) &&
-    prepararPlaylist(faixa).length > 0
-  ) ?? null;
-}
-
-function identificarIngles(item) {
-  const idioma = normalizar(item?.idioma);
-
-  const textos = normalizar([
-    item?.nome,
-    item?.titulo,
-    item?.descricao,
-    item?.nomePrograma,
-    item?.nome_programa
-  ].filter(Boolean).join(" "));
-
-  const idiomaIngles =
-    idioma === "ingles" ||
-    idioma === "english" ||
-    idioma.startsWith("ingles ") ||
-    idioma.startsWith("english ");
-
-  const textoIngles =
-    /\bingles\b/.test(textos) ||
-    /\benglish\b/.test(textos);
-
-  return idiomaIngles || textoIngles;
+    return obterListaDaFaixa(faixa)
+        .filter(item => {
+            return (
+                estaAtivo(item.ativo) &&
+                obterAudio(
+                    item.audioUrl ||
+                    item.urlAudio ||
+                    item.url_audio ||
+                    item.audio ||
+                    ""
+                ) !== ""
+            );
+        })
+        .map(item => ({
+            id: item.programaId || item.programa_id || item.id || null,
+            nome: nomeDoPrograma(item),
+            descricao: descricaoDoPrograma(item),
+            audio: obterAudio(
+                item.audioUrl ||
+                item.urlAudio ||
+                item.url_audio ||
+                item.audio ||
+                ""
+            ),
+            pdfUrl: obterPdf(
+                item.pdfUrl ||
+                item.pdf_url ||
+                item.urlPdf ||
+                ""
+            )
+        }));
 }
 
 function pontuacaoIngles(faixa) {
-  const nome = normalizar(faixa?.nome);
-  const descricao = normalizar(faixa?.descricao);
+    const texto = normalizar([
+        faixa.nome,
+        faixa.descricao,
+        ...obterListaDaFaixa(faixa).map(item => {
+            return `${nomeDoPrograma(item)} ${item.idioma || ""}`;
+        })
+    ].join(" "));
 
-  let pontos = 0;
+    let pontos = 0;
 
-  if (/\bingles\b|\benglish\b/.test(nome)) pontos += 10;
-  if (/\bingles\b|\benglish\b/.test(descricao)) pontos += 5;
+    if (texto.includes("ingles")) pontos += 5;
+    if (texto.includes("english")) pontos += 5;
+    if (texto.includes("aula")) pontos += 1;
+    if (texto.includes("idioma")) pontos += 1;
 
-  const playlist = Array.isArray(faixa?.playlist)
-    ? faixa.playlist
-    : [];
-
-  if (playlist.some(identificarIngles)) pontos += 20;
-
-  if (/iniciante|beginner|aula 1|lesson 1/.test(nome)) {
-    pontos += 3;
-  }
-
-  return pontos;
+    return pontos;
 }
 
-// Procura uma faixa de inglês cadastrada.
-// Ela pode ser usada fora do horário original como padrão.
+function identificarIngles(faixa) {
+    return pontuacaoIngles(faixa) > 0;
+}
+
+function encontrarFaixaAtiva() {
+    return faixas.find(faixa => {
+        return (
+            estaAtivo(faixa.ativo) &&
+            diaCorresponde(faixa.diaSemana) &&
+            horarioValido(faixa)
+        );
+    }) || null;
+}
+
 function encontrarFaixaPadraoIngles() {
-  const candidatas = faixas
-    .filter(faixa =>
-      estaAtivo(faixa) &&
-      prepararPlaylist(faixa).length > 0 &&
-      pontuacaoIngles(faixa) > 0
-    )
-    .sort((a, b) => pontuacaoIngles(b) - pontuacaoIngles(a));
-
-  if (candidatas.length) {
-    return candidatas[0];
-  }
-
-  // Se não houver uma faixa identificável como inglês,
-  // procura um programa de inglês cadastrado individualmente.
-  const programa = programas.find(item =>
-    estaAtivo(item) &&
-    identificarIngles(item) &&
-    obterAudio(item)
-  );
-
-  if (!programa) return null;
-
-  const idPrograma =
-    programa.id ??
-    programa.codigo_externo ??
-    programa.codigo ??
-    programa.nome ??
-    "ingles";
-
-  return {
-    id: `padrao-ingles-${idPrograma}`,
-    nome: programa.titulo ?? programa.nome ?? "Inglês",
-    descricao: programa.descricao || "Aula de inglês da Amazon Voices.",
-    inicio: "--:--",
-    fim: "--:--",
-    padraoIngles: true,
-    playlist: [{
-      ordem: 1,
-      titulo: programa.titulo ?? programa.nome ?? "Aula de inglês",
-      descricao: programa.descricao ?? "",
-      audioUrl: obterAudio(programa)
-    }]
-  };
+    return faixas
+        .filter(faixa => {
+            return (
+                estaAtivo(faixa.ativo) &&
+                prepararPlaylist(faixa).length > 0 &&
+                identificarIngles(faixa)
+            );
+        })
+        .sort((a, b) => {
+            return pontuacaoIngles(b) - pontuacaoIngles(a);
+        })[0] || null;
 }
 
-// A programação cadastrada sempre tem prioridade.
-// Fora dela, o player tenta usar o inglês como padrão.
 function encontrarFaixaDesejada() {
-  return encontrarFaixaAtiva() || encontrarFaixaPadraoIngles();
+    const ativa = encontrarFaixaAtiva();
+
+    if (ativa && prepararPlaylist(ativa).length > 0) {
+        return ativa;
+    }
+
+    return encontrarFaixaPadraoIngles();
 }
 
-function selecionarFaixa(faixa) {
-  faixaEmReproducao = faixa;
-  playlistAtual = prepararPlaylist(faixa);
-  indiceAtual = 0;
-}
-
-// --------------------------------------------------
-// INTERFACE
-// --------------------------------------------------
+/* --------------------------------------------------
+   PLAYER DA RÁDIO
+-------------------------------------------------- */
 
 function atualizarBotao() {
-  if (el.texto) {
-    el.texto.textContent = tocando ? "PAUSAR" : "OUVIR AGORA";
-  }
+    if (el.iconePlay) {
+        el.iconePlay.textContent = reproduzindo ? "❚❚" : "▶";
+    }
 
-  if (el.icone) {
-    el.icone.textContent = tocando ? "❚❚" : "▶";
-  }
+    if (el.textoPlay) {
+        el.textoPlay.textContent = reproduzindo
+            ? "PAUSAR RÁDIO"
+            : "OUVIR AGORA";
+    }
 
-  if (el.botao) {
-    el.botao.setAttribute(
-      "aria-label",
-      tocando ? "Pausar rádio" : "Ouvir rádio"
-    );
-  }
+    if (el.botaoPlay) {
+        el.botaoPlay.setAttribute(
+            "aria-label",
+            reproduzindo ? "Pausar rádio" : "Ouvir rádio"
+        );
+    }
 }
 
-function atualizarInformacoes(faixa, item) {
-  if (el.programa) {
-    el.programa.textContent =
-      item?.nome ?? faixa?.nome ?? "Amazon Voices";
-  }
+function atualizarInformacoes(faixa) {
+    if (!faixa) {
+        if (el.programaAtual) {
+            el.programaAtual.textContent = "Amazon Voices Radio";
+        }
 
-  if (el.descricao) {
-    el.descricao.textContent =
-      item?.descricao ||
-      faixa?.descricao ||
-      (faixa?.padraoIngles
-        ? "Inglês padrão da Amazon Voices."
-        : "Você está ouvindo a Amazon Voices Radio.");
-  }
+        if (el.descricaoPrograma) {
+            el.descricaoPrograma.textContent =
+                "Muitas vozes, uma conexão.";
+        }
 
-  if (el.inicio) {
-    el.inicio.textContent = faixa?.padraoIngles
-      ? "Padrão"
-      : faixa?.inicio ?? "--:--";
-  }
+        if (el.horarioInicio) {
+            el.horarioInicio.textContent = "--:--";
+        }
 
-  if (el.fim) {
-    el.fim.textContent = faixa?.padraoIngles
-      ? "Contínuo"
-      : faixa?.fim ?? "--:--";
-  }
-}
+        if (el.horarioFim) {
+            el.horarioFim.textContent = "--:--";
+        }
 
-function renderizarProgramacao() {
-  if (!el.lista) return;
+        return;
+    }
 
-  const ordenadas = [...faixas]
-    .filter(estaAtivo)
-    .sort((a, b) => String(a.inicio).localeCompare(String(b.inicio)));
+    if (el.programaAtual) {
+        el.programaAtual.textContent =
+            faixa.nome || "Amazon Voices Radio";
+    }
 
-  if (!ordenadas.length) {
-    el.lista.innerHTML =
-      '<p class="programacao-vazia">Nenhuma faixa horária cadastrada.</p>';
-    return;
-  }
+    if (el.descricaoPrograma) {
+        el.descricaoPrograma.textContent =
+            faixa.descricao || "Acompanhe nossa programação.";
+    }
 
-  el.lista.innerHTML = ordenadas.map(faixa => {
-    const quantidade = prepararPlaylist(faixa).length;
-    const dia = faixa.diaSemana ?? faixa.dia_semana;
+    if (el.horarioInicio) {
+        el.horarioInicio.textContent = faixa.inicio || "--:--";
+    }
 
-    const nomeDia = dia === null || dia === undefined
-      ? "Todos os dias"
-      : ["Domingo", "Segunda", "Terça", "Quarta",
-         "Quinta", "Sexta", "Sábado"][Number(dia)] ?? "";
-
-    return `
-      <div class="item-programacao">
-        <div class="item-programacao-horario">
-          ${escapar(faixa.inicio)} – ${escapar(faixa.fim)}
-        </div>
-        <div class="item-programacao-conteudo">
-          <strong>${escapar(faixa.nome)}</strong>
-          <p>${escapar(faixa.descricao || nomeDia)}</p>
-          <p>${quantidade} áudio(s) na playlist</p>
-        </div>
-      </div>
-    `;
-  }).join("");
-}
-
-function atualizarData() {
-  if (el.data) {
-    el.data.textContent = new Intl.DateTimeFormat("pt-BR", {
-      timeZone: FUSO_HORARIO,
-      dateStyle: "full"
-    }).format(new Date());
-  }
-
-  if (el.ano) {
-    el.ano.textContent = new Intl.DateTimeFormat("pt-BR", {
-      timeZone: FUSO_HORARIO,
-      year: "numeric"
-    }).format(new Date());
-  }
-}
-
-// --------------------------------------------------
-// CONTROLE DO PLAYER
-// --------------------------------------------------
-
-function pararRadio(mensagem = "Rádio pausada.") {
-  if (el.audio) el.audio.pause();
-
-  tocando = false;
-  atualizarBotao();
-  status(mensagem);
+    if (el.horarioFim) {
+        el.horarioFim.textContent = faixa.fim || "--:--";
+    }
 }
 
 async function reproduzirIndice(indice) {
-  if (!el.audio) {
-    status("O player de áudio não foi encontrado na página.");
-    return;
-  }
+    if (!playlistAtual.length || !el.audio) {
+        status("Não há áudio disponível nesta programação.");
+        reproduzindo = false;
+        atualizarBotao();
+        return;
+    }
 
-  // Confere a programação atual antes de iniciar cada áudio.
-  const desejada = encontrarFaixaDesejada();
+    if (indice < 0 || indice >= playlistAtual.length) {
+        indice = 0;
+    }
 
-  if (!desejada) {
-    pararRadio("Cadastre uma aula de inglês para usar como programação padrão.");
-    return;
-  }
+    indiceAtual = indice;
 
-  if (
-    !faixaEmReproducao ||
-    String(desejada.id) !== String(faixaEmReproducao.id)
-  ) {
-    selecionarFaixa(desejada);
-  }
+    const item = playlistAtual[indiceAtual];
 
-  if (!playlistAtual.length) {
-    pararRadio("Não há áudios disponíveis na programação atual.");
-    return;
-  }
-
-  indiceAtual = ((indice % playlistAtual.length) + playlistAtual.length)
-    % playlistAtual.length;
-
-  const item = playlistAtual[indiceAtual];
-
-  if (!item?.audio) {
-    status("O endereço de um dos áudios está inválido.");
-    return;
-  }
-
-  try {
-    el.audio.pause();
     el.audio.src = item.audio;
     el.audio.load();
+    audioCarregado = true;
 
-    atualizarInformacoes(faixaEmReproducao, item);
+    if (el.programaAtual) {
+        el.programaAtual.textContent = item.nome;
+    }
 
-    status(
-      `Carregando áudio ${indiceAtual + 1} de ${playlistAtual.length}: ${item.nome}`
-    );
+    if (el.descricaoPrograma) {
+        el.descricaoPrograma.textContent =
+            item.descricao || "Amazon Voices Radio";
+    }
 
-    await el.audio.play();
+    try {
+        await el.audio.play();
 
-    tocando = true;
-    atualizarBotao();
+        reproduzindo = true;
+        atualizarBotao();
+        status(`Reproduzindo: ${item.nome}`);
+    } catch (erro) {
+        reproduzindo = false;
+        atualizarBotao();
+        status(
+            "Não foi possível iniciar o áudio. Toque em Ouvir Agora para tentar novamente."
+        );
 
-    status(
-      `Reproduzindo ${indiceAtual + 1} de ${playlistAtual.length}: ${item.nome}`
-    );
-  } catch (erro) {
-    console.error("Erro ao reproduzir áudio:", erro);
-
-    tocando = false;
-    atualizarBotao();
-
-    status(
-      "Não foi possível tocar este áudio. Verifique se o link do MP3 está acessível."
-    );
-  }
+        console.error("Erro ao reproduzir áudio:", erro);
+    }
 }
 
 async function tocarRadio() {
-  if (carregando) return;
-
-  if (!el.audio) {
-    status("O player de áudio não foi encontrado na página.");
-    return;
-  }
-
-  if (tocando) {
-    pararRadio();
-    return;
-  }
-
-  carregando = true;
-
-  try {
-    const desejada = encontrarFaixaDesejada();
-
-    if (!desejada) {
-      status(
-        "Não encontrei uma programação ativa nem uma aula de inglês padrão. Confira os programas cadastrados."
-      );
-      return;
+    if (!el.audio) {
+        return;
     }
 
-    selecionarFaixa(desejada);
+    if (reproduzindo && !el.audio.paused) {
+        el.audio.pause();
+        reproduzindo = false;
+        atualizarBotao();
+        status("Rádio pausada.");
+        return;
+    }
+
+    if (
+        audioCarregado &&
+        el.audio.src &&
+        el.audio.paused &&
+        !el.audio.ended
+    ) {
+        try {
+            await el.audio.play();
+            reproduzindo = true;
+            atualizarBotao();
+            status("Rádio tocando.");
+            return;
+        } catch (erro) {
+            console.error("Erro ao retomar áudio:", erro);
+        }
+    }
+
+    const faixa = encontrarFaixaDesejada();
+
+    if (!faixa) {
+        status("Não há programação com áudio disponível neste momento.");
+        return;
+    }
+
+    faixaAtual = faixa;
+    playlistAtual = prepararPlaylist(faixa);
+
+    atualizarInformacoes(faixa);
 
     if (!playlistAtual.length) {
-      status("A programação selecionada não possui áudios válidos.");
-      return;
-    }
-
-    if (desejada.padraoIngles || !encontrarFaixaAtiva()) {
-      status("Sem faixa horária ativa. Iniciando o inglês padrão.");
-    } else {
-      status(`Iniciando a programação: ${desejada.nome}.`);
+        status("Esta programação ainda não possui áudios disponíveis.");
+        return;
     }
 
     await reproduzirIndice(0);
-  } finally {
-    carregando = false;
-  }
 }
 
-// --------------------------------------------------
-// TROCA AUTOMÁTICA DE PROGRAMAÇÃO
-// --------------------------------------------------
-
-async function avancarAudio() {
-  if (!playlistAtual.length) return;
-
-  const desejada = encontrarFaixaDesejada();
-
-  if (!desejada) {
-    pararRadio("Não há programação ativa nem inglês padrão cadastrado.");
-    return;
-  }
-
-  // Se o horário mudou durante o áudio, começa a nova programação.
-  if (
-    !faixaEmReproducao ||
-    String(desejada.id) !== String(faixaEmReproducao.id)
-  ) {
-    selecionarFaixa(desejada);
-
+function avancarAudio() {
     if (!playlistAtual.length) {
-      pararRadio("A próxima programação não possui áudios disponíveis.");
-      return;
+        reproduzindo = false;
+        atualizarBotao();
+        status("Não há mais áudios nesta playlist.");
+        return;
     }
 
-    await reproduzirIndice(0);
-    return;
-  }
-
-  // Ao terminar a playlist, volta ao primeiro áudio.
-  const proximo = (indiceAtual + 1) % playlistAtual.length;
-  await reproduzirIndice(proximo);
+    const proximo = (indiceAtual + 1) % playlistAtual.length;
+    reproduzirIndice(proximo);
 }
 
-async function verificarMudancaDeHorario() {
-  // Só troca a programação automaticamente quando o rádio está tocando.
-  if (!tocando || carregando) return;
+/* --------------------------------------------------
+   PROGRAMAÇÃO PÚBLICA E LINKS DOS PDFs
+-------------------------------------------------- */
 
-  const desejada = encontrarFaixaDesejada();
-
-  if (!desejada) {
-    pararRadio(
-      "Não há programação ativa nem inglês padrão cadastrado."
+function obterPdfDaPlaylist(item) {
+    return obterPdf(
+        item.pdfUrl ||
+        item.pdf_url ||
+        item.urlPdf ||
+        item.pdf ||
+        ""
     );
-    return;
-  }
-
-  // Inclui a troca do inglês padrão para uma faixa programada
-  // e o retorno ao inglês quando a faixa programada termina.
-  if (
-    !faixaEmReproducao ||
-    String(desejada.id) !== String(faixaEmReproducao.id)
-  ) {
-    selecionarFaixa(desejada);
-
-    if (playlistAtual.length) {
-      await reproduzirIndice(0);
-    } else {
-      pararRadio("A próxima programação não possui áudios disponíveis.");
-    }
-  }
 }
 
-// --------------------------------------------------
-// CARREGAMENTO DOS DADOS
-// --------------------------------------------------
+function renderizarMateriaisPdf(faixa) {
+    const itens = obterListaDaFaixa(faixa);
+
+    const materiais = itens
+        .map(item => {
+            const url = obterPdfDaPlaylist(item);
+
+            if (!url) {
+                return "";
+            }
+
+            const nome = escapar(nomeDoPrograma(item));
+
+            return `
+                <div class="material-pdf">
+                    <span class="material-pdf-nome">${nome}</span>
+                    <a
+                        class="material-pdf-link"
+                        href="${escapar(url)}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="Abrir PDF de ${nome}"
+                    >
+                        📄 Abrir material em PDF
+                    </a>
+                </div>
+            `;
+        })
+        .filter(Boolean);
+
+    if (!materiais.length) {
+        return "";
+    }
+
+    return `
+        <div class="materiais-pdf">
+            <strong>Materiais de apoio:</strong>
+            ${materiais.join("")}
+        </div>
+    `;
+}
+
+function textoDias(faixa) {
+    const dia = faixa.diaSemana;
+
+    if (
+        dia === null ||
+        dia === undefined ||
+        dia === "" ||
+        String(dia).toLowerCase() === "todos"
+    ) {
+        return "Todos os dias";
+    }
+
+    const nomes = [
+        "Domingo",
+        "Segunda-feira",
+        "Terça-feira",
+        "Quarta-feira",
+        "Quinta-feira",
+        "Sexta-feira",
+        "Sábado"
+    ];
+
+    const lista = Array.isArray(dia) ? dia : String(dia).split(",");
+
+    const resultado = lista.map(valor => {
+        const numero = Number(String(valor).trim());
+
+        if (Number.isInteger(numero) && nomes[numero]) {
+            return nomes[numero];
+        }
+
+        return String(valor).trim();
+    });
+
+    return resultado.join(", ");
+}
+
+function renderizarProgramacao() {
+    if (!el.listaProgramacao) {
+        return;
+    }
+
+    if (el.dataProgramacao) {
+        el.dataProgramacao.textContent =
+            `Programação de hoje — ${dataAtualManaus()}`;
+    }
+
+    if (!faixas.length) {
+        el.listaProgramacao.innerHTML = `
+            <p class="programacao-vazia">
+                A programação ainda não está disponível.
+            </p>
+        `;
+        return;
+    }
+
+    const listaOrdenada = [...faixas]
+        .filter(faixa => estaAtivo(faixa.ativo))
+        .sort((a, b) => {
+            const inicioA = paraSegundos(a.inicio) ?? 0;
+            const inicioB = paraSegundos(b.inicio) ?? 0;
+
+            return inicioA - inicioB;
+        });
+
+    if (!listaOrdenada.length) {
+        el.listaProgramacao.innerHTML = `
+            <p class="programacao-vazia">
+                Nenhuma programação disponível no momento.
+            </p>
+        `;
+        return;
+    }
+
+    el.listaProgramacao.innerHTML = listaOrdenada.map(faixa => {
+        const nome = escapar(faixa.nome || "Programação");
+        const descricao = escapar(
+            faixa.descricao || "Acompanhe esta programação da Amazon Voices."
+        );
+        const inicio = escapar(faixa.inicio || "--:--");
+        const fim = escapar(faixa.fim || "--:--");
+        const dias = escapar(textoDias(faixa));
+        const playlist = obterListaDaFaixa(faixa);
+
+        const quantidadeAudios = prepararPlaylist(faixa).length;
+
+        const materiaisPdf = renderizarMateriaisPdf(faixa);
+
+        const programasHtml = playlist.length
+            ? `
+                <div class="programas-da-faixa">
+                    ${playlist.map(item => {
+                        const titulo = escapar(nomeDoPrograma(item));
+                        const idioma = item.idioma
+                            ? `<span class="programa-idioma">${escapar(item.idioma)}</span>`
+                            : "";
+
+                        return `
+                            <div class="programa-da-faixa">
+                                <span>${titulo}</span>
+                                ${idioma}
+                            </div>
+                        `;
+                    }).join("")}
+                </div>
+            `
+            : "";
+
+        return `
+            <article class="item-programacao">
+                <div class="item-programacao-horario">
+                    <span>${inicio} – ${fim}</span>
+                </div>
+
+                <div class="item-programacao-conteudo">
+                    <h3>${nome}</h3>
+                    <p>${descricao}</p>
+
+                    <p class="programacao-dias">${dias}</p>
+
+                    ${programasHtml}
+
+                    <p class="programacao-quantidade">
+                        ${quantidadeAudios} áudio(s) nesta programação
+                    </p>
+
+                    ${materiaisPdf}
+                </div>
+            </article>
+        `;
+    }).join("");
+}
+
+/* --------------------------------------------------
+   TROCA AUTOMÁTICA DE PROGRAMAÇÃO
+-------------------------------------------------- */
+
+function verificarMudancaDeHorario() {
+    const faixaEncontrada = encontrarFaixaDesejada();
+
+    if (!faixaEncontrada) {
+        return;
+    }
+
+    const mudouFaixa = !faixaAtual || faixaEncontrada.id !== faixaAtual.id;
+
+    if (mudouFaixa) {
+        faixaAtual = faixaEncontrada;
+        playlistAtual = prepararPlaylist(faixaEncontrada);
+        indiceAtual = 0;
+
+        atualizarInformacoes(faixaEncontrada);
+
+        if (reproduzindo && playlistAtual.length > 0) {
+            reproduzirIndice(0);
+        } else if (!playlistAtual.length) {
+            status("Aguardando áudio disponível na programação.");
+        }
+    }
+}
+
+/* --------------------------------------------------
+   CARREGAMENTO DOS DADOS
+-------------------------------------------------- */
 
 async function carregarDados() {
-  status("Carregando programação...");
+    try {
+        const [dadosFaixas, dadosProgramas] = await Promise.all([
+            buscarJSON(API.faixas),
+            buscarJSON(API.programas).catch(() => [])
+        ]);
 
-  try {
-    const resultados = await Promise.allSettled([
-      buscarJSON(API.faixas),
-      buscarJSON(API.programas)
-    ]);
+        faixas = Array.isArray(dadosFaixas)
+            ? dadosFaixas
+            : [];
 
-    if (resultados[0].status === "fulfilled") {
-      faixas = resultados[0].value;
-    } else {
-      console.error(
-        "Erro ao carregar faixas:",
-        resultados[0].reason
-      );
-      faixas = [];
+        programas = Array.isArray(dadosProgramas)
+            ? dadosProgramas
+            : [];
+
+        renderizarProgramacao();
+
+        const faixa = encontrarFaixaDesejada();
+
+        if (faixa) {
+            faixaAtual = faixa;
+            atualizarInformacoes(faixa);
+
+            if (!reproduzindo) {
+                status("Pronto para ouvir.");
+            }
+        } else {
+            atualizarInformacoes(null);
+            status("Aguardando a próxima programação.");
+        }
+
+        verificarMudancaDeHorario();
+    } catch (erro) {
+        console.error("Erro ao carregar a programação:", erro);
+
+        if (el.listaProgramacao) {
+            el.listaProgramacao.innerHTML = `
+                <p class="programacao-vazia">
+                    Não foi possível carregar a programação.
+                    Tente atualizar a página.
+                </p>
+            `;
+        }
+
+        status("Não foi possível carregar os dados da rádio.");
     }
-
-    if (resultados[1].status === "fulfilled") {
-      programas = resultados[1].value;
-    } else {
-      console.error(
-        "Erro ao carregar programas:",
-        resultados[1].reason
-      );
-      programas = [];
-    }
-
-    renderizarProgramacao();
-    atualizarData();
-
-    if (encontrarFaixaAtiva()) {
-      status("Programação carregada. Clique em Ouvir Agora.");
-    } else if (encontrarFaixaPadraoIngles()) {
-      status(
-        "Programação carregada. O inglês será o padrão fora dos horários programados."
-      );
-    } else {
-      status(
-        "Programação carregada, mas não encontrei uma aula de inglês para usar como padrão."
-      );
-    }
-  } catch (erro) {
-    console.error("Erro ao carregar a rádio:", erro);
-    status("Não foi possível carregar a programação.");
-  }
 }
 
-// --------------------------------------------------
-// EVENTOS
-// --------------------------------------------------
+/* --------------------------------------------------
+   EVENTOS
+-------------------------------------------------- */
 
-if (el.botao) {
-  el.botao.addEventListener("click", tocarRadio);
+if (el.botaoPlay) {
+    el.botaoPlay.addEventListener("click", tocarRadio);
 }
 
 if (el.audio) {
-  el.audio.addEventListener("ended", avancarAudio);
+    el.audio.addEventListener("ended", () => {
+        avancarAudio();
+    });
 
-  el.audio.addEventListener("playing", () => {
-    tocando = true;
-    atualizarBotao();
-  });
+    el.audio.addEventListener("play", () => {
+        reproduzindo = true;
+        atualizarBotao();
+    });
 
-  el.audio.addEventListener("pause", () => {
-    if (!el.audio.ended) {
-      tocando = false;
-      atualizarBotao();
-    }
-  });
+    el.audio.addEventListener("pause", () => {
+        reproduzindo = false;
+        atualizarBotao();
+    });
 
-  el.audio.addEventListener("error", () => {
-    console.error("Erro no player:", el.audio.error);
-    tocando = false;
-    atualizarBotao();
-    status("Erro ao abrir o áudio. Verifique o link MP3 cadastrado.");
-  });
+    el.audio.addEventListener("error", () => {
+        reproduzindo = false;
+        atualizarBotao();
+        status("Não foi possível carregar este áudio.");
+    });
 }
 
+if (el.anoAtual) {
+    el.anoAtual.textContent = new Date().getFullYear();
+}
+
+atualizarBotao();
 carregarDados();
 
-if (verificacaoHorario) {
-  clearInterval(verificacaoHorario);
-}
+verificacaoHorario = setInterval(() => {
+    verificarMudancaDeHorario();
 
-verificacaoHorario = setInterval(verificarMudancaDeHorario, 5000);
+    // Atualiza a programação para exibir alterações feitas no painel.
+    carregarDados();
+}, 60000);
