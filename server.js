@@ -69,7 +69,7 @@ function texto(valor, limite = 200) {
 function horarioValido(valor) {
   return (
     typeof valor === "string" &&
-    /^([01]\d|2[0-3]):[0-5]\d$/.test(valor)
+    /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(valor)
   );
 }
 
@@ -91,35 +91,39 @@ function urlAudioValida(valor) {
   }
 }
 
-// Prepara o banco de dados.
+// Prepara o banco de dados sem apagar os registros existentes.
 async function prepararBanco() {
   await pool.query(`
     ALTER TABLE programas
       ADD COLUMN IF NOT EXISTS codigo_externo TEXT,
-      ADD COLUMN IF NOT EXISTS idioma VARCHAR(50);
-
-    ALTER TABLE programacao
-      ADD COLUMN IF NOT EXISTS codigo_externo TEXT;
+      ADD COLUMN IF NOT EXISTS idioma VARCHAR(50)
   `);
 
   await pool.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS
-      idx_programas_codigo_externo
+    ALTER TABLE programacao
+      ADD COLUMN IF NOT EXISTS codigo_externo TEXT
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_programas_codigo_externo
       ON programas (codigo_externo)
-      WHERE codigo_externo IS NOT NULL;
+      WHERE codigo_externo IS NOT NULL
+  `);
 
-    CREATE UNIQUE INDEX IF NOT EXISTS
-      idx_programacao_codigo_externo
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_programacao_codigo_externo
       ON programacao (codigo_externo)
-      WHERE codigo_externo IS NOT NULL;
+      WHERE codigo_externo IS NOT NULL
+  `);
 
-    CREATE INDEX IF NOT EXISTS
-      idx_programacao_horarios
-      ON programacao (dia_semana, horario_inicio);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_programacao_horarios
+      ON programacao (dia_semana, horario_inicio)
+  `);
 
-    CREATE INDEX IF NOT EXISTS
-      idx_programacao_programa
-      ON programacao (programa_id);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_programacao_programa
+      ON programacao (programa_id)
   `);
 
   console.log("Estrutura do Neon conferida.");
@@ -158,9 +162,9 @@ app.get("/api/health", (req, res) => {
 // Teste da conexão com o Neon.
 app.get("/api/teste-neon", async (req, res, next) => {
   try {
-    const resultado = await pool.query(`
-      SELECT NOW() AS horario, current_database() AS banco
-    `);
+    const resultado = await pool.query(
+      "SELECT NOW() AS horario, current_database() AS banco"
+    );
 
     res.json({
       conectado: true,
@@ -173,7 +177,7 @@ app.get("/api/teste-neon", async (req, res, next) => {
   }
 });
 
-// Lista de programas.
+// Lista de programas e áudios cadastrados.
 app.get("/api/programas", async (req, res, next) => {
   try {
     const resultado = await pool.query(`
@@ -209,7 +213,7 @@ app.get("/api/programas", async (req, res, next) => {
   }
 });
 
-// Lista dos horários da programação antiga.
+// Programação antiga: permanece separada das novas playlists.
 app.get("/api/programacao", async (req, res, next) => {
   try {
     const resultado = await pool.query(`
@@ -295,16 +299,20 @@ app.post("/api/admin/logout", exigirAdmin, (req, res, next) => {
     res.json({ sucesso: true });
   });
 });
-// Cadastro de programas.
+
+// Cadastro de programas e áudios.
 app.post("/api/admin/programas", exigirAdmin, async (req, res, next) => {
   try {
     const dados = req.body || {};
-
     const nome = dados.titulo ?? dados.nome;
     const idioma = dados.idioma || "Português";
     const descricao = dados.descricao || "";
     const audio =
-      dados.audioUrl ?? dados.url_audio ?? dados.url ?? dados.audio ?? "";
+      dados.audioUrl ??
+      dados.url_audio ??
+      dados.url ??
+      dados.audio ??
+      "";
 
     const codigo = texto(dados.id, 100)
       ? dados.id.trim()
@@ -367,7 +375,7 @@ app.post("/api/admin/programas", exigirAdmin, async (req, res, next) => {
 });
 
 // Salva a programação antiga.
-// Esta rota continua disponível para o painel atual.
+// Esta rota não exclui nem modifica as novas faixas horárias.
 app.put(
   "/api/admin/programacao",
   exigirAdmin,
@@ -399,23 +407,15 @@ app.put(
       }
     }
 
-    const horariosUnicos = new Map();
+    const unicos = new Map();
 
     for (const item of lista) {
       const inicio = item.inicio ?? item.horario;
       const dia = item.diaSemana ?? "todos";
-      const chave = `${dia}|${inicio}`;
-
-      horariosUnicos.set(chave, item);
+      unicos.set(`${dia}|${inicio}`, item);
     }
 
-    lista = [...horariosUnicos.values()];
-
-    if (lista.length > 500) {
-      return res.status(400).json({
-        erro: "A programação ultrapassa o limite permitido."
-      });
-    }
+    lista = [...unicos.values()];
 
     const ids = new Set();
 
@@ -439,7 +439,7 @@ app.put(
     try {
       await client.query("BEGIN");
 
-      const horariosResolvidos = [];
+      const resolvidos = [];
 
       for (const item of lista) {
         const codigoPrograma = String(item.programaId);
@@ -454,7 +454,7 @@ app.put(
           [codigoPrograma]
         );
 
-        if (programa.rowCount === 0) {
+        if (!programa.rowCount) {
           throw Object.assign(
             new Error("Programa não encontrado: " + codigoPrograma),
             { status: 400 }
@@ -462,7 +462,6 @@ app.put(
         }
 
         const inicio = item.inicio ?? item.horario;
-
         let fim = item.fim;
 
         if (!fim) {
@@ -482,7 +481,7 @@ app.put(
           );
         }
 
-        horariosResolvidos.push({
+        resolvidos.push({
           codigo: texto(item.id, 100)
             ? item.id.trim()
             : crypto.randomUUID(),
@@ -498,11 +497,10 @@ app.put(
         });
       }
 
-      // Atenção: esta exclusão afeta apenas a tabela antiga
-      // "programacao", nunca as novas tabelas de playlists.
+      // Exclusão restrita à programação antiga.
       await client.query("DELETE FROM programacao");
 
-      for (const h of horariosResolvidos) {
+      for (const h of resolvidos) {
         await client.query(
           `
           INSERT INTO programacao
@@ -533,16 +531,14 @@ app.put(
 
       res.json({
         sucesso: true,
-        total: horariosResolvidos.length,
+        total: resolvidos.length,
         mensagem: "Programação salva com sucesso."
       });
     } catch (err) {
       await client.query("ROLLBACK");
 
       if (err.status === 400) {
-        return res.status(400).json({
-          erro: err.message
-        });
+        return res.status(400).json({ erro: err.message });
       }
 
       next(err);
@@ -551,8 +547,9 @@ app.put(
     }
   }
 );
+
 // ============================================================
-// NOVO: FAIXAS HORÁRIAS COM PLAYLISTS ORDENADAS
+// FAIXAS HORÁRIAS COM PLAYLISTS ORDENADAS
 // ============================================================
 
 // Lista as faixas horárias e seus áudios em ordem.
@@ -606,8 +603,7 @@ app.get("/api/faixas-horarias", async (req, res, next) => {
   }
 });
 
-// Cria uma faixa e sua playlist inicial.
-// Cada item contém programaId e, opcionalmente, ordem.
+// Cria uma faixa horária e sua playlist inicial.
 app.post(
   "/api/admin/faixas-horarias",
   exigirAdmin,
@@ -665,7 +661,7 @@ app.post(
       for (let i = 0; i < itens.length; i++) {
         const item = itens[i];
         const programaCodigo = item?.programaId;
-        const ordem = item?.ordem ?? (i + 1);
+        const ordem = item?.ordem ?? i + 1;
 
         if (
           !texto(String(programaCodigo ?? ""), 100) ||
@@ -738,7 +734,8 @@ app.post(
   }
 );
 
-// Atualiza a playlist de uma faixa existente.
+// Atualiza a playlist.
+// Uma lista vazia é válida: significa remover todos os áudios.
 app.put(
   "/api/admin/faixas-horarias/:id/playlist",
   exigirAdmin,
@@ -749,7 +746,6 @@ app.put(
     if (
       !/^\d+$/.test(faixaId) ||
       !Array.isArray(itens) ||
-      itens.length < 1 ||
       itens.length > 100
     ) {
       return res.status(400).json({
@@ -784,7 +780,7 @@ app.put(
       for (let i = 0; i < itens.length; i++) {
         const item = itens[i];
         const programaCodigo = item?.programaId;
-        const ordem = item?.ordem ?? (i + 1);
+        const ordem = item?.ordem ?? i + 1;
 
         if (
           !texto(String(programaCodigo ?? ""), 100) ||
@@ -833,7 +829,9 @@ app.put(
         sucesso: true,
         faixaId: String(faixaId),
         totalAudios: itens.length,
-        mensagem: "Playlist atualizada com sucesso."
+        mensagem: itens.length
+          ? "Playlist atualizada com sucesso."
+          : "Todos os áudios foram removidos da playlist."
       });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -849,6 +847,65 @@ app.put(
   }
 );
 
+// Exclui uma faixa horária inteira e os itens da playlist associados.
+app.delete(
+  "/api/admin/faixas-horarias/:id",
+  exigirAdmin,
+  async (req, res, next) => {
+    const faixaId = req.params.id;
+
+    if (!/^\d+$/.test(faixaId)) {
+      return res.status(400).json({
+        erro: "Identificador de faixa horária inválido."
+      });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const faixa = await client.query(
+        "SELECT id, nome FROM faixas_horarias WHERE id = $1 FOR UPDATE",
+        [faixaId]
+      );
+
+      if (!faixa.rowCount) {
+        await client.query("ROLLBACK");
+
+        return res.status(404).json({
+          erro: "Essa faixa horária já não existe."
+        });
+      }
+
+      // Primeiro exclui os áudios ligados à faixa.
+      await client.query(
+        "DELETE FROM playlist_itens WHERE faixa_id = $1",
+        [faixaId]
+      );
+
+      // Depois exclui a própria faixa.
+      await client.query(
+        "DELETE FROM faixas_horarias WHERE id = $1",
+        [faixaId]
+      );
+
+      await client.query("COMMIT");
+
+      res.json({
+        sucesso: true,
+        faixaId: String(faixaId),
+        mensagem: "Faixa horária e playlist excluídas com sucesso."
+      });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      next(err);
+    } finally {
+      client.release();
+    }
+  }
+);
+
 // Tratamento geral de erros.
 app.use((err, req, res, next) => {
   console.error("Erro na aplicação:", err.message);
@@ -857,7 +914,7 @@ app.use((err, req, res, next) => {
 
   res.status(err.status || 500).json({
     erro:
-      err.status === 400
+      err.status && err.status < 500
         ? err.message
         : "Ocorreu um erro interno no servidor."
   });
