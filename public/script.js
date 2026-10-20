@@ -1,7 +1,7 @@
 
 "use strict";
 
-// Amazon Voices Radio — Player com playlist de vários áudios.
+// Amazon Voices Radio — Player com playlist e programação automática.
 
 const API = {
   faixas: "/api/faixas-horarias",
@@ -32,7 +32,6 @@ let playlistAtual = [];
 let indiceAtual = 0;
 let tocando = false;
 let carregando = false;
-let modoTeste = false;
 let verificacaoHorario = null;
 
 function status(mensagem) {
@@ -81,6 +80,10 @@ async function buscarJSON(url) {
 
   return [];
 }
+
+// --------------------------------------------------
+// HORÁRIO LOCAL: MANAUS
+// --------------------------------------------------
 
 function partesHora() {
   const partes = new Intl.DateTimeFormat("en-GB", {
@@ -162,19 +165,13 @@ function horarioValido(faixa) {
     return agora >= inicio && agora < fim;
   }
 
-  // Também aceita horários que atravessam a meia-noite.
+  // Aceita horários que atravessam a meia-noite.
   return agora >= inicio || agora < fim;
 }
 
-function encontrarFaixaAtiva() {
-  return faixas.find(faixa =>
-    estaAtivo(faixa) &&
-    diaCorresponde(faixa.diaSemana ?? faixa.dia_semana) &&
-    horarioValido(faixa) &&
-    Array.isArray(faixa.playlist) &&
-    faixa.playlist.some(item => estaAtivo(item) && obterAudio(item))
-  ) ?? null;
-}
+// --------------------------------------------------
+// ÁUDIOS E PLAYLISTS
+// --------------------------------------------------
 
 function obterAudio(item) {
   const url =
@@ -212,6 +209,129 @@ function prepararPlaylist(faixa) {
     }));
 }
 
+// --------------------------------------------------
+// IDENTIFICAÇÃO DA PROGRAMAÇÃO
+// --------------------------------------------------
+
+function encontrarFaixaAtiva() {
+  return faixas.find(faixa =>
+    estaAtivo(faixa) &&
+    diaCorresponde(faixa.diaSemana ?? faixa.dia_semana) &&
+    horarioValido(faixa) &&
+    prepararPlaylist(faixa).length > 0
+  ) ?? null;
+}
+
+function identificarIngles(item) {
+  const idioma = normalizar(item?.idioma);
+
+  const textos = normalizar([
+    item?.nome,
+    item?.titulo,
+    item?.descricao,
+    item?.nomePrograma,
+    item?.nome_programa
+  ].filter(Boolean).join(" "));
+
+  const idiomaIngles =
+    idioma === "ingles" ||
+    idioma === "english" ||
+    idioma.startsWith("ingles ") ||
+    idioma.startsWith("english ");
+
+  const textoIngles =
+    /\bingles\b/.test(textos) ||
+    /\benglish\b/.test(textos);
+
+  return idiomaIngles || textoIngles;
+}
+
+function pontuacaoIngles(faixa) {
+  const nome = normalizar(faixa?.nome);
+  const descricao = normalizar(faixa?.descricao);
+
+  let pontos = 0;
+
+  if (/\bingles\b|\benglish\b/.test(nome)) pontos += 10;
+  if (/\bingles\b|\benglish\b/.test(descricao)) pontos += 5;
+
+  const playlist = Array.isArray(faixa?.playlist)
+    ? faixa.playlist
+    : [];
+
+  if (playlist.some(identificarIngles)) pontos += 20;
+
+  if (/iniciante|beginner|aula 1|lesson 1/.test(nome)) {
+    pontos += 3;
+  }
+
+  return pontos;
+}
+
+// Procura uma faixa de inglês cadastrada.
+// Ela pode ser usada fora do horário original como padrão.
+function encontrarFaixaPadraoIngles() {
+  const candidatas = faixas
+    .filter(faixa =>
+      estaAtivo(faixa) &&
+      prepararPlaylist(faixa).length > 0 &&
+      pontuacaoIngles(faixa) > 0
+    )
+    .sort((a, b) => pontuacaoIngles(b) - pontuacaoIngles(a));
+
+  if (candidatas.length) {
+    return candidatas[0];
+  }
+
+  // Se não houver uma faixa identificável como inglês,
+  // procura um programa de inglês cadastrado individualmente.
+  const programa = programas.find(item =>
+    estaAtivo(item) &&
+    identificarIngles(item) &&
+    obterAudio(item)
+  );
+
+  if (!programa) return null;
+
+  const idPrograma =
+    programa.id ??
+    programa.codigo_externo ??
+    programa.codigo ??
+    programa.nome ??
+    "ingles";
+
+  return {
+    id: `padrao-ingles-${idPrograma}`,
+    nome: programa.titulo ?? programa.nome ?? "Inglês",
+    descricao: programa.descricao || "Aula de inglês da Amazon Voices.",
+    inicio: "--:--",
+    fim: "--:--",
+    padraoIngles: true,
+    playlist: [{
+      ordem: 1,
+      titulo: programa.titulo ?? programa.nome ?? "Aula de inglês",
+      descricao: programa.descricao ?? "",
+      audioUrl: obterAudio(programa)
+    }]
+  };
+}
+
+// A programação cadastrada sempre tem prioridade.
+// Fora dela, o player tenta usar o inglês como padrão.
+function encontrarFaixaDesejada() {
+  return encontrarFaixaAtiva() || encontrarFaixaPadraoIngles();
+}
+
+function selecionarFaixa(faixa) {
+  faixaEmReproducao = faixa;
+  playlistAtual = prepararPlaylist(faixa);
+  indiceAtual = 0;
+}
+
+// --------------------------------------------------
+// INTERFACE
+// --------------------------------------------------
+
 function atualizarBotao() {
   if (el.texto) {
     el.texto.textContent = tocando ? "PAUSAR" : "OUVIR AGORA";
@@ -237,12 +357,24 @@ function atualizarInformacoes(faixa, item) {
 
   if (el.descricao) {
     el.descricao.textContent =
-      item?.descricao || faixa?.descricao ||
-      "Você está ouvindo a Amazon Voices Radio.";
+      item?.descricao ||
+      faixa?.descricao ||
+      (faixa?.padraoIngles
+        ? "Inglês padrão da Amazon Voices."
+        : "Você está ouvindo a Amazon Voices Radio.");
   }
 
-  if (el.inicio) el.inicio.textContent = faixa?.inicio ?? "--:--";
-  if (el.fim) el.fim.textContent = faixa?.fim ?? "--:--";
+  if (el.inicio) {
+    el.inicio.textContent = faixa?.padraoIngles
+      ? "Padrão"
+      : faixa?.inicio ?? "--:--";
+  }
+
+  if (el.fim) {
+    el.fim.textContent = faixa?.padraoIngles
+      ? "Contínuo"
+      : faixa?.fim ?? "--:--";
+  }
 }
 
 function renderizarProgramacao() {
@@ -261,6 +393,7 @@ function renderizarProgramacao() {
   el.lista.innerHTML = ordenadas.map(faixa => {
     const quantidade = prepararPlaylist(faixa).length;
     const dia = faixa.diaSemana ?? faixa.dia_semana;
+
     const nomeDia = dia === null || dia === undefined
       ? "Todos os dias"
       : ["Domingo", "Segunda", "Terça", "Quarta",
@@ -297,6 +430,10 @@ function atualizarData() {
   }
 }
 
+// --------------------------------------------------
+// CONTROLE DO PLAYER
+// --------------------------------------------------
+
 function pararRadio(mensagem = "Rádio pausada.") {
   if (el.audio) el.audio.pause();
 
@@ -306,22 +443,33 @@ function pararRadio(mensagem = "Rádio pausada.") {
 }
 
 async function reproduzirIndice(indice) {
-  if (!el.audio || !playlistAtual.length) {
-    status("Não há áudios disponíveis nesta playlist.");
+  if (!el.audio) {
+    status("O player de áudio não foi encontrado na página.");
     return;
   }
 
-  // Confere se ainda estamos dentro do horário desta faixa.
-  if (!modoTeste) {
-    const ativa = encontrarFaixaAtiva();
+  // Confere a programação atual antes de iniciar cada áudio.
+  const desejada = encontrarFaixaDesejada();
 
-    if (!ativa || String(ativa.id) !== String(faixaEmReproducao?.id)) {
-      pararRadio("Esta faixa horária terminou. Aguardando a próxima programação.");
-      return;
-    }
+  if (!desejada) {
+    pararRadio("Cadastre uma aula de inglês para usar como programação padrão.");
+    return;
   }
 
-  indiceAtual = indice;
+  if (
+    !faixaEmReproducao ||
+    String(desejada.id) !== String(faixaEmReproducao.id)
+  ) {
+    selecionarFaixa(desejada);
+  }
+
+  if (!playlistAtual.length) {
+    pararRadio("Não há áudios disponíveis na programação atual.");
+    return;
+  }
+
+  indiceAtual = ((indice % playlistAtual.length) + playlistAtual.length)
+    % playlistAtual.length;
 
   const item = playlistAtual[indiceAtual];
 
@@ -336,20 +484,28 @@ async function reproduzirIndice(indice) {
     el.audio.load();
 
     atualizarInformacoes(faixaEmReproducao, item);
-    status(`Carregando áudio ${indiceAtual + 1} de ${playlistAtual.length}: ${item.nome}`);
+
+    status(
+      `Carregando áudio ${indiceAtual + 1} de ${playlistAtual.length}: ${item.nome}`
+    );
 
     await el.audio.play();
 
     tocando = true;
     atualizarBotao();
-    status(`Reproduzindo ${indiceAtual + 1} de ${playlistAtual.length}: ${item.nome}`);
+
+    status(
+      `Reproduzindo ${indiceAtual + 1} de ${playlistAtual.length}: ${item.nome}`
+    );
   } catch (erro) {
     console.error("Erro ao reproduzir áudio:", erro);
 
     tocando = false;
     atualizarBotao();
 
-    status("Não foi possível tocar este áudio. Verifique se o link do MP3 está acessível.");
+    status(
+      "Não foi possível tocar este áudio. Verifique se o link do MP3 está acessível."
+    );
   }
 }
 
@@ -369,33 +525,26 @@ async function tocarRadio() {
   carregando = true;
 
   try {
-    const ativa = encontrarFaixaAtiva();
+    const desejada = encontrarFaixaDesejada();
 
-    if (ativa) {
-      faixaEmReproducao = ativa;
-      playlistAtual = prepararPlaylist(ativa);
-      modoTeste = false;
-    } else {
-      // Permite testar uma playlist cadastrada fora do seu horário.
-      const teste = faixas.find(f =>
-        estaAtivo(f) && prepararPlaylist(f).length > 0
+    if (!desejada) {
+      status(
+        "Não encontrei uma programação ativa nem uma aula de inglês padrão. Confira os programas cadastrados."
       );
-
-      if (!teste) {
-        status("Não há uma playlist disponível. Confira o painel administrativo.");
-        return;
-      }
-
-      faixaEmReproducao = teste;
-      playlistAtual = prepararPlaylist(teste);
-      modoTeste = true;
-
-      status("Modo de teste: reproduzindo uma playlist fora do horário programado.");
+      return;
     }
 
+    selecionarFaixa(desejada);
+
     if (!playlistAtual.length) {
-      status("Esta faixa horária não possui áudios válidos.");
+      status("A programação selecionada não possui áudios válidos.");
       return;
+    }
+
+    if (desejada.padraoIngles || !encontrarFaixaAtiva()) {
+      status("Sem faixa horária ativa. Iniciando o inglês padrão.");
+    } else {
+      status(`Iniciando a programação: ${desejada.nome}.`);
     }
 
     await reproduzirIndice(0);
@@ -404,60 +553,73 @@ async function tocarRadio() {
   }
 }
 
+// --------------------------------------------------
+// TROCA AUTOMÁTICA DE PROGRAMAÇÃO
+// --------------------------------------------------
+
 async function avancarAudio() {
-  if (!tocando || !playlistAtual.length) return;
+  if (!playlistAtual.length) return;
 
-  // A faixa pode ter terminado enquanto o áudio estava tocando.
-  if (!modoTeste) {
-    const ativa = encontrarFaixaAtiva();
+  const desejada = encontrarFaixaDesejada();
 
-    if (!ativa) {
-      pararRadio("A faixa horária terminou. Aguardando a próxima programação.");
-      return;
-    }
-
-    if (String(ativa.id) !== String(faixaEmReproducao?.id)) {
-      faixaEmReproducao = ativa;
-      playlistAtual = prepararPlaylist(ativa);
-
-      if (!playlistAtual.length) {
-        pararRadio("A próxima faixa não possui áudios disponíveis.");
-        return;
-      }
-
-      modoTeste = false;
-      await reproduzirIndice(0);
-      return;
-    }
+  if (!desejada) {
+    pararRadio("Não há programação ativa nem inglês padrão cadastrado.");
+    return;
   }
 
-  // Próximo áudio; depois do último, volta ao primeiro.
+  // Se o horário mudou durante o áudio, começa a nova programação.
+  if (
+    !faixaEmReproducao ||
+    String(desejada.id) !== String(faixaEmReproducao.id)
+  ) {
+    selecionarFaixa(desejada);
+
+    if (!playlistAtual.length) {
+      pararRadio("A próxima programação não possui áudios disponíveis.");
+      return;
+    }
+
+    await reproduzirIndice(0);
+    return;
+  }
+
+  // Ao terminar a playlist, volta ao primeiro áudio.
   const proximo = (indiceAtual + 1) % playlistAtual.length;
   await reproduzirIndice(proximo);
 }
 
 async function verificarMudancaDeHorario() {
-  if (!tocando || modoTeste) return;
+  // Só troca a programação automaticamente quando o rádio está tocando.
+  if (!tocando || carregando) return;
 
-  const ativa = encontrarFaixaAtiva();
+  const desejada = encontrarFaixaDesejada();
 
-  if (!ativa) {
-    pararRadio("A faixa horária terminou. Aguardando a próxima programação.");
+  if (!desejada) {
+    pararRadio(
+      "Não há programação ativa nem inglês padrão cadastrado."
+    );
     return;
   }
 
-  if (String(ativa.id) !== String(faixaEmReproducao?.id)) {
-    faixaEmReproducao = ativa;
-    playlistAtual = prepararPlaylist(ativa);
-    indiceAtual = 0;
+  // Inclui a troca do inglês padrão para uma faixa programada
+  // e o retorno ao inglês quando a faixa programada termina.
+  if (
+    !faixaEmReproducao ||
+    String(desejada.id) !== String(faixaEmReproducao.id)
+  ) {
+    selecionarFaixa(desejada);
 
     if (playlistAtual.length) {
       await reproduzirIndice(0);
     } else {
-      pararRadio("A próxima faixa não possui áudios disponíveis.");
+      pararRadio("A próxima programação não possui áudios disponíveis.");
     }
   }
 }
+
+// --------------------------------------------------
+// CARREGAMENTO DOS DADOS
+// --------------------------------------------------
 
 async function carregarDados() {
   status("Carregando programação...");
@@ -471,13 +633,20 @@ async function carregarDados() {
     if (resultados[0].status === "fulfilled") {
       faixas = resultados[0].value;
     } else {
-      console.error("Erro ao carregar faixas:", resultados[0].reason);
+      console.error(
+        "Erro ao carregar faixas:",
+        resultados[0].reason
+      );
       faixas = [];
     }
 
     if (resultados[1].status === "fulfilled") {
       programas = resultados[1].value;
     } else {
+      console.error(
+        "Erro ao carregar programas:",
+        resultados[1].reason
+      );
       programas = [];
     }
 
@@ -486,16 +655,24 @@ async function carregarDados() {
 
     if (encontrarFaixaAtiva()) {
       status("Programação carregada. Clique em Ouvir Agora.");
-    } else if (faixas.length) {
-      status("Programação carregada. Não há faixa ativa neste momento; você pode testar uma playlist.");
+    } else if (encontrarFaixaPadraoIngles()) {
+      status(
+        "Programação carregada. O inglês será o padrão fora dos horários programados."
+      );
     } else {
-      status("Nenhuma faixa horária foi encontrada.");
+      status(
+        "Programação carregada, mas não encontrei uma aula de inglês para usar como padrão."
+      );
     }
   } catch (erro) {
     console.error("Erro ao carregar a rádio:", erro);
     status("Não foi possível carregar a programação.");
   }
 }
+
+// --------------------------------------------------
+// EVENTOS
+// --------------------------------------------------
 
 if (el.botao) {
   el.botao.addEventListener("click", tocarRadio);
@@ -526,5 +703,8 @@ if (el.audio) {
 
 carregarDados();
 
-if (verificacaoHorario) clearInterval(verificacaoHorario);
+if (verificacaoHorario) {
+  clearInterval(verificacaoHorario);
+}
+
 verificacaoHorario = setInterval(verificarMudancaDeHorario, 5000);
