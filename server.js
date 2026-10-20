@@ -1,3 +1,4 @@
+
 const express = require("express");
 const session = require("express-session");
 const path = require("path");
@@ -91,12 +92,30 @@ function urlAudioValida(valor) {
   }
 }
 
-// Prepara o banco de dados sem apagar os registros existentes.
+// Valida o link do material em PDF.
+function urlPdfValida(valor) {
+  if (valor === undefined || valor === null || valor === "") {
+    return true;
+  }
+
+  if (typeof valor !== "string" || valor.length > 2000) {
+    return false;
+  }
+
+  try {
+    return new URL(valor.trim()).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+// Prepara o banco sem apagar os registros existentes.
 async function prepararBanco() {
   await pool.query(`
     ALTER TABLE programas
       ADD COLUMN IF NOT EXISTS codigo_externo TEXT,
-      ADD COLUMN IF NOT EXISTS idioma VARCHAR(50)
+      ADD COLUMN IF NOT EXISTS idioma VARCHAR(50),
+      ADD COLUMN IF NOT EXISTS pdf_url TEXT
   `);
 
   await pool.query(`
@@ -177,7 +196,7 @@ app.get("/api/teste-neon", async (req, res, next) => {
   }
 });
 
-// Lista de programas e áudios cadastrados.
+// Lista de programas, áudios e materiais em PDF.
 app.get("/api/programas", async (req, res, next) => {
   try {
     const resultado = await pool.query(`
@@ -188,6 +207,7 @@ app.get("/api/programas", async (req, res, next) => {
         idioma,
         descricao,
         url_audio,
+        pdf_url,
         ativo,
         criado_em
       FROM programas
@@ -204,6 +224,8 @@ app.get("/api/programas", async (req, res, next) => {
         audioUrl: p.url_audio || "",
         url_audio: p.url_audio || "",
         url: p.url_audio || "",
+        pdfUrl: p.pdf_url || "",
+        pdf_url: p.pdf_url || "",
         ativo: p.ativo,
         criadoEm: p.criado_em
       }))
@@ -300,18 +322,25 @@ app.post("/api/admin/logout", exigirAdmin, (req, res, next) => {
   });
 });
 
-// Cadastro de programas e áudios.
+// Cadastro de programas, áudios e PDFs.
 app.post("/api/admin/programas", exigirAdmin, async (req, res, next) => {
   try {
     const dados = req.body || {};
     const nome = dados.titulo ?? dados.nome;
     const idioma = dados.idioma || "Português";
     const descricao = dados.descricao || "";
+
     const audio =
       dados.audioUrl ??
       dados.url_audio ??
       dados.url ??
       dados.audio ??
+      "";
+
+    const pdf =
+      dados.pdfUrl ??
+      dados.pdf_url ??
+      dados.pdf ??
       "";
 
     const codigo = texto(dados.id, 100)
@@ -323,27 +352,45 @@ app.post("/api/admin/programas", exigirAdmin, async (req, res, next) => {
       !texto(idioma, 50) ||
       typeof descricao !== "string" ||
       descricao.length > 500 ||
-      !urlAudioValida(audio)
+      !urlAudioValida(audio) ||
+      !urlPdfValida(pdf)
     ) {
       return res.status(400).json({
-        erro: "Confira o nome, idioma, descrição e endereço do áudio."
+        erro:
+          "Confira o nome, idioma, descrição, endereço do áudio e link do PDF."
       });
     }
 
     const resultado = await pool.query(
       `
       INSERT INTO programas
-        (codigo_externo, nome, idioma, descricao, url_audio, ativo)
-      VALUES ($1, $2, $3, $4, $5, TRUE)
+        (
+          codigo_externo,
+          nome,
+          idioma,
+          descricao,
+          url_audio,
+          pdf_url,
+          ativo
+        )
+      VALUES ($1, $2, $3, $4, $5, $6, TRUE)
       RETURNING
-        id, codigo_externo, nome, idioma, descricao, url_audio, ativo
+        id,
+        codigo_externo,
+        nome,
+        idioma,
+        descricao,
+        url_audio,
+        pdf_url,
+        ativo
       `,
       [
         codigo,
         nome.trim(),
         idioma.trim(),
         descricao.trim(),
-        audio.trim()
+        typeof audio === "string" ? audio.trim() : "",
+        typeof pdf === "string" ? pdf.trim() : ""
       ]
     );
 
@@ -360,6 +407,8 @@ app.post("/api/admin/programas", exigirAdmin, async (req, res, next) => {
         audioUrl: p.url_audio,
         url_audio: p.url_audio,
         url: p.url_audio,
+        pdfUrl: p.pdf_url || "",
+        pdf_url: p.pdf_url || "",
         ativo: p.ativo
       }
     });
@@ -375,7 +424,7 @@ app.post("/api/admin/programas", exigirAdmin, async (req, res, next) => {
 });
 
 // Salva a programação antiga.
-// Esta rota não exclui nem modifica as novas faixas horárias.
+// Não modifica as novas faixas horárias.
 app.put(
   "/api/admin/programacao",
   exigirAdmin,
@@ -552,7 +601,7 @@ app.put(
 // FAIXAS HORÁRIAS COM PLAYLISTS ORDENADAS
 // ============================================================
 
-// Lista as faixas horárias e seus áudios em ordem.
+// Lista as faixas horárias, seus áudios e seus PDFs.
 app.get("/api/faixas-horarias", async (req, res, next) => {
   try {
     const resultado = await pool.query(`
@@ -572,7 +621,8 @@ app.get("/api/faixas-horarias", async (req, res, next) => {
               'titulo', p.nome,
               'idioma', p.idioma,
               'descricao', p.descricao,
-              'audioUrl', p.url_audio
+              'audioUrl', p.url_audio,
+              'pdfUrl', p.pdf_url
             )
             ORDER BY pi.ordem
           ) FILTER (WHERE pi.id IS NOT NULL),
@@ -632,7 +682,8 @@ app.post(
       itens.length > 100
     ) {
       return res.status(400).json({
-        erro: "Confira o nome, os horários, o dia da semana e os áudios da playlist."
+        erro:
+          "Confira o nome, os horários, o dia da semana e os áudios da playlist."
       });
     }
 
@@ -735,7 +786,7 @@ app.post(
 );
 
 // Atualiza a playlist.
-// Uma lista vazia é válida: significa remover todos os áudios.
+// Uma lista vazia é válida: remove todos os áudios.
 app.put(
   "/api/admin/faixas-horarias/:id/playlist",
   exigirAdmin,
@@ -847,7 +898,7 @@ app.put(
   }
 );
 
-// Exclui uma faixa horária inteira e os itens da playlist associados.
+// Exclui uma faixa horária inteira e sua playlist.
 app.delete(
   "/api/admin/faixas-horarias/:id",
   exigirAdmin,
@@ -878,13 +929,11 @@ app.delete(
         });
       }
 
-      // Primeiro exclui os áudios ligados à faixa.
       await client.query(
         "DELETE FROM playlist_itens WHERE faixa_id = $1",
         [faixaId]
       );
 
-      // Depois exclui a própria faixa.
       await client.query(
         "DELETE FROM faixas_horarias WHERE id = $1",
         [faixaId]
