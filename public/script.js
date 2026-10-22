@@ -895,3 +895,44 @@ verificacaoHorario = setInterval(() => {
     // Atualiza a programação para exibir alterações feitas no painel.
     carregarDados();
 }, 60000);
+
+/* --------------------------------------------------
+   CONTADOR DE VISITAS
+   Registra uma visita por carregamento da página.
+   Não fica dentro do intervalo de 60 segundos.
+-------------------------------------------------- */
+
+(async function registrarVisitaRadio() {
+    const elemento = document.getElementById("total-visitas");
+
+    if (!elemento) {
+        return;
+    }
+
+    try {
+        const resposta = await fetch("/api/visitas", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: "{}"
+        });
+
+        if (!resposta.ok) {
+            throw new Error(
+                `Não foi possível registrar a visita: ${resposta.status}`
+            );
+        }
+
+        const dados = await resposta.json();
+
+        if (dados.total === undefined || dados.total === null) {
+            throw new Error("O servidor não retornou o total de visitas.");
+        }
+
+        elemento.textContent = Number(dados.total).toLocaleString("pt-BR");
+    } catch (erro) {
+        console.error("Erro no contador de visitas:", erro);
+        elemento.textContent = "Indisponível";
+    }
+})();
