@@ -191,6 +191,55 @@
       overflow-wrap: anywhere;
     }
 
+    /* Estatísticas de visitas */
+    .estatisticas-visitas {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin: 16px 0;
+    }
+
+    .estatistica-visita {
+      padding: 16px;
+      border: 1px solid #40516b;
+      border-radius: 9px;
+      background: #101c2e;
+    }
+
+    .estatistica-visita span {
+      display: block;
+      color: #b7c5d8;
+      font-size: 14px;
+    }
+
+    .estatistica-visita strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 26px;
+      overflow-wrap: anywhere;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .historico-visitas {
+      display: grid;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .historico-visita-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 7px;
+      background: #101c2e;
+    }
+
+    .historico-visita-item strong {
+      font-variant-numeric: tabular-nums;
+    }
+
     @media (max-width: 600px) {
       .linha {
         grid-template-columns: 1fr;
@@ -203,6 +252,10 @@
 
       .playlist-item {
         align-items: flex-start;
+      }
+
+      .estatisticas-visitas {
+        grid-template-columns: 1fr;
       }
     }
   </style>
@@ -234,6 +287,52 @@
   </section>
 
   <div id="painelAdmin" class="oculto">
+
+    <!-- NOVO: ESTATÍSTICAS DE VISITAS -->
+    <section class="cartao" id="cartaoEstatisticasVisitas">
+      <h2>Estatísticas de visitas</h2>
+
+      <p class="ajuda">
+        Acompanhe as visitas registradas na Amazon Voices Radio.
+      </p>
+
+      <div class="estatisticas-visitas">
+        <div class="estatistica-visita">
+          <span>Total acumulado</span>
+          <strong id="admin-total-visitas">Carregando...</strong>
+        </div>
+
+        <div class="estatistica-visita">
+          <span>Visitas de hoje</span>
+          <strong id="admin-visitas-hoje">Carregando...</strong>
+        </div>
+      </div>
+
+      <h3>Histórico diário</h3>
+
+      <button
+        type="button"
+        id="admin-atualizar-visitas"
+        class="secundario"
+      >
+        Atualizar estatísticas
+      </button>
+
+      <div
+        id="admin-historico-visitas"
+        class="historico-visitas"
+        aria-live="polite"
+      >
+        Carregando histórico...
+      </div>
+
+      <p
+        id="admin-mensagem-visitas"
+        class="mensagem"
+        role="status"
+      ></p>
+    </section>
+
     <section class="cartao">
       <h2>Cadastrar programa, áudio e PDF</h2>
 
@@ -387,7 +486,8 @@ const API = {
   sessao: "/api/admin/sessao",
   logout: "/api/admin/logout",
   cadastrarPrograma: "/api/admin/programas",
-  cadastrarFaixa: "/api/admin/faixas-horarias"
+  cadastrarFaixa: "/api/admin/faixas-horarias",
+  visitas: "/api/admin/visitas"
 };
 
 let programas = [];
@@ -439,12 +539,93 @@ async function requisicao(url, opcoes = {}) {
   return dados;
 }
 
+/* NOVO: CARREGAR ESTATÍSTICAS DE VISITAS */
+async function carregarEstatisticasVisitas() {
+  const totalElemento = $("admin-total-visitas");
+  const hojeElemento = $("admin-visitas-hoje");
+  const historicoElemento = $("admin-historico-visitas");
+  const mensagemElemento = $("admin-mensagem-visitas");
+
+  try {
+    const dados = await requisicao(API.visitas);
+
+    totalElemento.textContent =
+      Number(dados.total || 0).toLocaleString("pt-BR");
+
+    hojeElemento.textContent =
+      Number(dados.hoje || 0).toLocaleString("pt-BR");
+
+    historicoElemento.replaceChildren();
+
+    const historico = Array.isArray(dados.historico)
+      ? dados.historico
+      : [];
+
+    if (!historico.length) {
+      historicoElemento.textContent =
+        "Ainda não há histórico diário disponível.";
+    } else {
+      for (const registro of historico) {
+        const linha = document.createElement("div");
+        linha.className = "historico-visita-item";
+
+        const data = document.createElement("span");
+        const quantidade = document.createElement("strong");
+
+        const dataOriginal =
+          registro.data_local ||
+          registro.data ||
+          registro.dia ||
+          "";
+
+        if (
+          typeof dataOriginal === "string" &&
+          /^\d{4}-\d{2}-\d{2}$/.test(dataOriginal)
+        ) {
+          const [ano, mes, dia] = dataOriginal.split("-");
+          data.textContent = `${dia}/${mes}/${ano}`;
+        } else {
+          data.textContent = String(
+            dataOriginal || "Data não informada"
+          );
+        }
+
+        quantidade.textContent = Number(
+          registro.quantidade ??
+          registro.visitas ??
+          registro.total ??
+          0
+        ).toLocaleString("pt-BR");
+
+        linha.append(data, quantidade);
+        historicoElemento.appendChild(linha);
+      }
+    }
+
+    mensagemElemento.textContent = "";
+  } catch (erro) {
+    console.error(
+      "Erro ao carregar estatísticas de visitas:",
+      erro
+    );
+
+    mensagemElemento.textContent =
+      "Não foi possível carregar as estatísticas. Tente atualizar.";
+
+    mensagemElemento.style.color = "#ffaaaF";
+
+    totalElemento.textContent = "—";
+    hojeElemento.textContent = "—";
+    historicoElemento.textContent = "Histórico indisponível.";
+  }
+}
+
 async function carregarSessao() {
   try {
     const dados = await requisicao(API.sessao);
 
     if (dados.autenticado) {
-      mostrarPainel();
+      await mostrarPainel();
     } else {
       mostrarLogin();
     }
@@ -463,6 +644,7 @@ async function mostrarPainel() {
   $("painelAdmin").classList.remove("oculto");
 
   await carregarTudo();
+  await carregarEstatisticasVisitas();
 }
 
 $("formLogin").addEventListener("submit", async (evento) => {
@@ -959,6 +1141,11 @@ $("atualizarListas").addEventListener("click", async () => {
   } catch (erro) {
     mensagem("mensagemListas", erro.message, true);
   }
+});
+
+/* NOVO: BOTÃO PARA ATUALIZAR AS ESTATÍSTICAS */
+$("admin-atualizar-visitas").addEventListener("click", () => {
+  carregarEstatisticasVisitas();
 });
 
 renderizarNovaPlaylist();
