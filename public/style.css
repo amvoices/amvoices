@@ -1085,3 +1085,26 @@ svg {
         animation-duration: 0.01ms !important;
     }
 }
+
+
+/* Contador de visitas da Amazon Voices */
+.contador-visitas {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin: 14px 0 24px;
+    padding: 14px 18px;
+    border: 1px solid var(--borda, #303744);
+    border-radius: 12px;
+    background: var(--cartao, #171c25);
+    color: var(--texto-secundario, #b8c0cc);
+}
+
+.contador-visitas strong {
+    color: var(--texto, #ffffff);
+    font-size: 1.1rem;
+    font-variant-numeric: tabular-nums;
+}
+
+
