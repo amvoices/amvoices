@@ -74,6 +74,26 @@ function horarioValido(valor) {
   );
 }
 
+// Obtém a data atual usando o fuso horário de Manaus.
+function dataLocalManaus() {
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Manaus",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+
+  const partesData = {};
+
+  for (const parte of partes) {
+    if (parte.type !== "literal") {
+      partesData[parte.type] = parte.value;
+    }
+  }
+
+  return `${partesData.year}-${partesData.month}-${partesData.day}`;
+}
+
 function urlAudioValida(valor) {
   if (!valor) return true;
 
@@ -145,6 +165,14 @@ async function prepararBanco() {
       ON programacao (programa_id)
   `);
 
+  // Contador de visitas: uma linha por dia, sem apagar o histórico.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS visitas_radio_diarias (
+      data_local DATE PRIMARY KEY,
+      quantidade BIGINT NOT NULL DEFAULT 0
+    )
+  `);
+
   console.log("Estrutura do Neon conferida.");
 }
 
@@ -190,6 +218,88 @@ app.get("/api/teste-neon", async (req, res, next) => {
       mensagem: "Conexão com o Neon funcionando!",
       banco: resultado.rows[0].banco,
       horario: resultado.rows[0].horario
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
+// CONTADOR DE VISITAS DA RÁDIO
+// ============================================================
+
+// Registra uma visita quando a página pública solicita a rota.
+// A página deve chamar esta rota uma única vez por carregamento,
+// e não durante a atualização periódica da programação.
+app.post("/api/visitas", async (req, res, next) => {
+  try {
+    const data = dataLocalManaus();
+
+    await pool.query(
+      `
+      INSERT INTO visitas_radio_diarias (data_local, quantidade)
+      VALUES ($1::date, 1)
+      ON CONFLICT (data_local)
+      DO UPDATE SET
+        quantidade = visitas_radio_diarias.quantidade + 1
+      `,
+      [data]
+    );
+
+    const resultado = await pool.query(`
+      SELECT
+        COALESCE(SUM(quantidade), 0)::text AS total,
+        COALESCE(
+          SUM(quantidade) FILTER (
+            WHERE data_local = $1::date
+          ),
+          0
+        )::text AS hoje
+      FROM visitas_radio_diarias
+    `, [data]);
+
+    res.json({
+      total: Number(resultado.rows[0].total),
+      hoje: Number(resultado.rows[0].hoje)
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Métricas protegidas: somente o administrador autenticado pode consultar.
+app.get("/api/admin/visitas", exigirAdmin, async (req, res, next) => {
+  try {
+    const data = dataLocalManaus();
+
+    const totais = await pool.query(`
+      SELECT
+        COALESCE(SUM(quantidade), 0)::text AS total,
+        COALESCE(
+          SUM(quantidade) FILTER (
+            WHERE data_local = $1::date
+          ),
+          0
+        )::text AS hoje
+      FROM visitas_radio_diarias
+    `, [data]);
+
+    const historico = await pool.query(`
+      SELECT
+        TO_CHAR(data_local, 'DD/MM/YYYY') AS data,
+        quantidade::text AS quantidade
+      FROM visitas_radio_diarias
+      ORDER BY data_local DESC
+      LIMIT 30
+    `);
+
+    res.json({
+      total: Number(totais.rows[0].total),
+      hoje: Number(totais.rows[0].hoje),
+      historico: historico.rows.map((item) => ({
+        data: item.data,
+        quantidade: Number(item.quantidade)
+      }))
     });
   } catch (err) {
     next(err);
