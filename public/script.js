@@ -30,6 +30,10 @@ let reproduzindo = false;
 let verificacaoHorario = null;
 let audioCarregado = false;
 
+let idiomaSelecionado = "";
+let acordeoesInicializados = false;
+const faixasAbertas = new Set();
+
 /* --------------------------------------------------
    FUNÇÕES GERAIS
 -------------------------------------------------- */
@@ -100,7 +104,10 @@ function obterAudio(url) {
     try {
         const endereco = new URL(url.trim());
 
-        if (endereco.protocol !== "https:" && endereco.protocol !== "http:") {
+        if (
+            endereco.protocol !== "https:" &&
+            endereco.protocol !== "http:"
+        ) {
             return "";
         }
 
@@ -168,6 +175,7 @@ function segundosAtuais() {
 
 function diaAtualManaus() {
     const partes = partesHora();
+
     const dias = {
         Sun: 0,
         Mon: 1,
@@ -201,7 +209,7 @@ function diaCorresponde(diaSemana) {
         : String(diaSemana).split(",");
 
     return dias.some(dia => {
-        const valor = String(dia).trim().toLowerCase();
+        const valor = normalizar(String(dia).trim());
 
         if (valor === "" || valor === "todos") {
             return true;
@@ -235,7 +243,7 @@ function diaCorresponde(diaSemana) {
             sab: 6
         };
 
-        return nomesDias[normalizar(valor)] === diaAtualManaus();
+        return nomesDias[valor] === diaAtualManaus();
     });
 }
 
@@ -353,6 +361,134 @@ function prepararPlaylist(faixa) {
             )
         }));
 }
+
+/* --------------------------------------------------
+   IDENTIFICAÇÃO DOS IDIOMAS
+-------------------------------------------------- */
+
+const IDIOMAS_RADIO = {
+    pt: {
+        nome: "Português",
+        bandeira: "🇧🇷"
+    },
+    en: {
+        nome: "English",
+        bandeira: "🇬🇧"
+    },
+    es: {
+        nome: "Español",
+        bandeira: "🇪🇸"
+    },
+    ja: {
+        nome: "Japonês",
+        bandeira: "🇯🇵"
+    },
+    de: {
+        nome: "Deutsch",
+        bandeira: "🇩🇪"
+    },
+    fr: {
+        nome: "Français",
+        bandeira: "🇫🇷"
+    },
+    outros: {
+        nome: "Outros",
+        bandeira: "🌐"
+    }
+};
+
+function idiomaPorTexto(valor, aceitarSiglas = false) {
+    const texto = normalizar(valor);
+
+    if (!texto) {
+        return "";
+    }
+
+    // Nomes completos dos idiomas.
+    if (
+        /\b(portugues|portuguese)\b/.test(texto)
+    ) {
+        return "pt";
+    }
+
+    if (
+        /\b(ingles|english)\b/.test(texto)
+    ) {
+        return "en";
+    }
+
+    if (
+        /\b(espanhol|spanish|espanol)\b/.test(texto)
+    ) {
+        return "es";
+    }
+
+    if (
+        /\b(japones|japanese|nihongo)\b/.test(texto)
+    ) {
+        return "ja";
+    }
+
+    if (
+        /\b(alemao|german|deutsch)\b/.test(texto)
+    ) {
+        return "de";
+    }
+
+    if (
+        /\b(frances|french)\b/.test(texto)
+    ) {
+        return "fr";
+    }
+
+    // Siglas só são aceitas quando o valor é um código de idioma.
+    if (aceitarSiglas) {
+        const codigo = texto.replace(/_/g, "-");
+
+        if (/^(pt|pt-br|pt-pt)$/.test(codigo)) return "pt";
+        if (/^(en|en-us|en-gb)$/.test(codigo)) return "en";
+        if (/^(es|es-es|es-mx)$/.test(codigo)) return "es";
+        if (/^(ja|ja-jp)$/.test(codigo)) return "ja";
+        if (/^(de|de-de)$/.test(codigo)) return "de";
+        if (/^(fr|fr-fr)$/.test(codigo)) return "fr";
+    }
+
+    return "";
+}
+
+function identificarIdioma(faixa) {
+    const itens = obterListaDaFaixa(faixa);
+
+    // Campos de idioma explícitos têm prioridade.
+    const idiomasInformados = [
+        faixa.idioma,
+        faixa.linguagem,
+        ...itens.map(item => item.idioma),
+        ...itens.map(item => item.linguagem)
+    ].filter(valor => valor !== null && valor !== undefined && String(valor).trim());
+
+    for (const idioma of idiomasInformados) {
+        const identificado = idiomaPorTexto(idioma, true);
+
+        if (identificado) {
+            return identificado;
+        }
+    }
+
+    // Se não houver idioma explícito, tenta identificar pelo conteúdo.
+    const texto = [
+        faixa.nome,
+        faixa.descricao,
+        ...itens.map(item => nomeDoPrograma(item)),
+        ...itens.map(item => item.descricao)
+    ].join(" ");
+
+    return idiomaPorTexto(texto, false) || "outros";
+}
+
+/* --------------------------------------------------
+   ESCOLHA DA FAIXA ATUAL
+-------------------------------------------------- */
 
 function pontuacaoIngles(faixa) {
     const texto = normalizar([
@@ -513,6 +649,7 @@ async function reproduzirIndice(indice) {
     } catch (erro) {
         reproduzindo = false;
         atualizarBotao();
+
         status(
             "Não foi possível iniciar o áudio. Toque em Ouvir Agora para tentar novamente."
         );
@@ -542,6 +679,7 @@ async function tocarRadio() {
     ) {
         try {
             await el.audio.play();
+
             reproduzindo = true;
             atualizarBotao();
             status("Rádio tocando.");
@@ -580,11 +718,12 @@ function avancarAudio() {
     }
 
     const proximo = (indiceAtual + 1) % playlistAtual.length;
+
     reproduzirIndice(proximo);
 }
 
 /* --------------------------------------------------
-   PROGRAMAÇÃO PÚBLICA E LINKS DOS PDFs
+   MATERIAIS EM PDF
 -------------------------------------------------- */
 
 function obterPdfDaPlaylist(item) {
@@ -613,6 +752,7 @@ function renderizarMateriaisPdf(faixa) {
             return `
                 <div class="material-pdf">
                     <span class="material-pdf-nome">${nome}</span>
+
                     <a
                         class="material-pdf-link"
                         href="${escapar(url)}"
@@ -646,7 +786,7 @@ function textoDias(faixa) {
         dia === null ||
         dia === undefined ||
         dia === "" ||
-        String(dia).toLowerCase() === "todos"
+        normalizar(dia) === "todos"
     ) {
         return "Todos os dias";
     }
@@ -661,19 +801,107 @@ function textoDias(faixa) {
         "Sábado"
     ];
 
-    const lista = Array.isArray(dia) ? dia : String(dia).split(",");
+    const lista = Array.isArray(dia)
+        ? dia
+        : String(dia).split(",");
 
     const resultado = lista.map(valor => {
-        const numero = Number(String(valor).trim());
+        const texto = String(valor).trim();
+        const numero = Number(texto);
 
-        if (Number.isInteger(numero) && nomes[numero]) {
+        if (
+            texto !== "" &&
+            Number.isInteger(numero) &&
+            numero >= 0 &&
+            numero <= 6
+        ) {
             return nomes[numero];
         }
 
-        return String(valor).trim();
+        return texto;
     });
 
     return resultado.join(", ");
+}
+
+/* --------------------------------------------------
+   PROGRAMAÇÃO PÚBLICA POR IDIOMA E HORÁRIO
+-------------------------------------------------- */
+
+function chaveDaFaixa(faixa, indice) {
+    return String(
+        faixa.id ??
+        `${faixa.nome || "faixa"}-${faixa.inicio || ""}-${faixa.fim || ""}-${indice}`
+    );
+}
+
+function renderizarConteudoFaixa(faixa) {
+    const nome = escapar(faixa.nome || "Programação");
+
+    const descricao = escapar(
+        faixa.descricao ||
+        "Acompanhe esta programação da Amazon Voices."
+    );
+
+    const inicio = escapar(faixa.inicio || "--:--");
+    const fim = escapar(faixa.fim || "--:--");
+    const dias = escapar(textoDias(faixa));
+
+    const playlist = obterListaDaFaixa(faixa);
+    const quantidadeAudios = prepararPlaylist(faixa).length;
+    const materiaisPdf = renderizarMateriaisPdf(faixa);
+
+    const programasHtml = playlist.length
+        ? `
+            <div class="programas-da-faixa">
+                ${playlist.map(item => {
+                    const titulo = escapar(nomeDoPrograma(item));
+
+                    const idioma = item.idioma
+                        ? `
+                            <span class="programa-idioma">
+                                ${escapar(item.idioma)}
+                            </span>
+                        `
+                        : "";
+
+                    return `
+                        <div class="programa-da-faixa">
+                            <span>${titulo}</span>
+                            ${idioma}
+                        </div>
+                    `;
+                }).join("")}
+            </div>
+        `
+        : `
+            <p class="programacao-quantidade">
+                Nenhum programa cadastrado nesta faixa.
+            </p>
+        `;
+
+    return `
+        <div class="faixa-resumo">
+            <span class="item-programacao-horario">
+                ${inicio} – ${fim}
+            </span>
+
+            <span class="faixa-resumo-dias">${dias}</span>
+        </div>
+
+        <div class="item-programacao-conteudo">
+            <h3>${nome}</h3>
+            <p>${descricao}</p>
+
+            ${programasHtml}
+
+            <p class="programacao-quantidade">
+                ${quantidadeAudios} áudio(s) nesta programação
+            </p>
+
+            ${materiaisPdf}
+        </div>
+    `;
 }
 
 function renderizarProgramacao() {
@@ -686,7 +914,17 @@ function renderizarProgramacao() {
             `Programação de hoje — ${dataAtualManaus()}`;
     }
 
-    if (!faixas.length) {
+    const listaOrdenada = faixas
+        .map((faixa, indice) => ({ faixa, indice }))
+        .filter(({ faixa }) => estaAtivo(faixa.ativo))
+        .sort((a, b) => {
+            const inicioA = paraSegundos(a.faixa.inicio) ?? 0;
+            const inicioB = paraSegundos(b.faixa.inicio) ?? 0;
+
+            return inicioA - inicioB;
+        });
+
+    if (!listaOrdenada.length) {
         el.listaProgramacao.innerHTML = `
             <p class="programacao-vazia">
                 A programação ainda não está disponível.
@@ -695,81 +933,121 @@ function renderizarProgramacao() {
         return;
     }
 
-    const listaOrdenada = [...faixas]
-        .filter(faixa => estaAtivo(faixa.ativo))
-        .sort((a, b) => {
-            const inicioA = paraSegundos(a.inicio) ?? 0;
-            const inicioB = paraSegundos(b.inicio) ?? 0;
+    const grupos = {};
 
-            return inicioA - inicioB;
-        });
+    listaOrdenada.forEach(({ faixa, indice }) => {
+        const idioma = identificarIdioma(faixa);
 
-    if (!listaOrdenada.length) {
-        el.listaProgramacao.innerHTML = `
-            <p class="programacao-vazia">
-                Nenhuma programação disponível no momento.
-            </p>
-        `;
-        return;
+        if (!grupos[idioma]) {
+            grupos[idioma] = [];
+        }
+
+        grupos[idioma].push({ faixa, indice });
+    });
+
+    const ordemPreferida = [
+        "pt",
+        "en",
+        "es",
+        "ja",
+        "de",
+        "fr",
+        "outros"
+    ];
+
+    const idiomasDisponiveis = [
+        ...ordemPreferida.filter(idioma => grupos[idioma]),
+        ...Object.keys(grupos).filter(
+            idioma => !ordemPreferida.includes(idioma)
+        )
+    ];
+
+    if (!grupos[idiomaSelecionado]) {
+        idiomaSelecionado = idiomasDisponiveis[0];
     }
 
-    el.listaProgramacao.innerHTML = listaOrdenada.map(faixa => {
-        const nome = escapar(faixa.nome || "Programação");
-        const descricao = escapar(
-            faixa.descricao || "Acompanhe esta programação da Amazon Voices."
-        );
-        const inicio = escapar(faixa.inicio || "--:--");
-        const fim = escapar(faixa.fim || "--:--");
-        const dias = escapar(textoDias(faixa));
-        const playlist = obterListaDaFaixa(faixa);
+    const abas = idiomasDisponiveis.map(idioma => {
+        const info = IDIOMAS_RADIO[idioma] || {
+            nome: idioma,
+            bandeira: "🌐"
+        };
 
-        const quantidadeAudios = prepararPlaylist(faixa).length;
-
-        const materiaisPdf = renderizarMateriaisPdf(faixa);
-
-        const programasHtml = playlist.length
-            ? `
-                <div class="programas-da-faixa">
-                    ${playlist.map(item => {
-                        const titulo = escapar(nomeDoPrograma(item));
-                        const idioma = item.idioma
-                            ? `<span class="programa-idioma">${escapar(item.idioma)}</span>`
-                            : "";
-
-                        return `
-                            <div class="programa-da-faixa">
-                                <span>${titulo}</span>
-                                ${idioma}
-                            </div>
-                        `;
-                    }).join("")}
-                </div>
-            `
-            : "";
+        const selecionado = idioma === idiomaSelecionado;
 
         return `
-            <article class="item-programacao">
-                <div class="item-programacao-horario">
-                    <span>${inicio} – ${fim}</span>
-                </div>
+            <button
+                type="button"
+                class="aba-idioma ${selecionado ? "ativa" : ""}"
+                data-idioma="${escapar(idioma)}"
+                aria-pressed="${selecionado}"
+            >
+                <span
+                    class="aba-idioma-bandeira"
+                    aria-hidden="true"
+                >${info.bandeira}</span>
 
-                <div class="item-programacao-conteudo">
-                    <h3>${nome}</h3>
-                    <p>${descricao}</p>
+                <span>${escapar(info.nome)}</span>
 
-                    <p class="programacao-dias">${dias}</p>
-
-                    ${programasHtml}
-
-                    <p class="programacao-quantidade">
-                        ${quantidadeAudios} áudio(s) nesta programação
-                    </p>
-
-                    ${materiaisPdf}
-                </div>
-            </article>
+                <span class="aba-idioma-contagem">
+                    ${grupos[idioma].length}
+                </span>
+            </button>
         `;
     }).join("");
+
+    const faixasHtml = grupos[idiomaSelecionado].map(
+        ({ faixa, indice }, posicao) => {
+            const chave = chaveDaFaixa(faixa, indice);
+
+            const aberta = faixasAbertas.has(chave) ||
+                (!acordeoesInicializados && posicao === 0);
+
+            return `
+                <details
+                    class="faixa-acordeao"
+                    data-chave-faixa="${escapar(chave)}"
+                    ${aberta ? "open" : ""}
+                >
+                    <summary class="faixa-acordeao-cabecalho">
+                        <span class="faixa-acordeao-horario">
+                            ${escapar(faixa.inicio || "--:--")}
+                            <span aria-hidden="true">–</span>
+                            ${escapar(faixa.fim || "--:--")}
+                        </span>
+
+                        <span class="faixa-acordeao-titulo">
+                            ${escapar(faixa.nome || "Programação")}
+                        </span>
+
+                        <span
+                            class="faixa-acordeao-seta"
+                            aria-hidden="true"
+                        >⌄</span>
+                    </summary>
+
+                    <div class="faixa-acordeao-corpo">
+                        ${renderizarConteudoFaixa(faixa)}
+                    </div>
+                </details>
+            `;
+        }
+    ).join("");
+
+    el.listaProgramacao.innerHTML = `
+        <div
+            class="abas-idiomas"
+            role="group"
+            aria-label="Escolha o idioma da programação"
+        >
+            ${abas}
+        </div>
+
+        <div class="lista-faixas-idioma">
+            ${faixasHtml}
+        </div>
+    `;
+
+    acordeoesInicializados = true;
 }
 
 /* --------------------------------------------------
@@ -783,7 +1061,9 @@ function verificarMudancaDeHorario() {
         return;
     }
 
-    const mudouFaixa = !faixaAtual || faixaEncontrada.id !== faixaAtual.id;
+    const mudouFaixa =
+        !faixaAtual ||
+        faixaEncontrada.id !== faixaAtual.id;
 
     if (mudouFaixa) {
         faixaAtual = faixaEncontrada;
@@ -853,11 +1133,44 @@ async function carregarDados() {
 }
 
 /* --------------------------------------------------
-   EVENTOS
+   EVENTOS DO PLAYER E DA PROGRAMAÇÃO
 -------------------------------------------------- */
 
 if (el.botaoPlay) {
     el.botaoPlay.addEventListener("click", tocarRadio);
+}
+
+if (el.listaProgramacao) {
+    el.listaProgramacao.addEventListener("click", evento => {
+        const aba = evento.target.closest("[data-idioma]");
+
+        if (!aba || !el.listaProgramacao.contains(aba)) {
+            return;
+        }
+
+        idiomaSelecionado = aba.dataset.idioma;
+        renderizarProgramacao();
+    });
+
+    // Guarda quais horários estão abertos.
+    el.listaProgramacao.addEventListener("toggle", evento => {
+        const faixa = evento.target;
+
+        if (
+            !faixa.matches(".faixa-acordeao") ||
+            !faixa.dataset.chaveFaixa
+        ) {
+            return;
+        }
+
+        acordeoesInicializados = true;
+
+        if (faixa.open) {
+            faixasAbertas.add(faixa.dataset.chaveFaixa);
+        } else {
+            faixasAbertas.delete(faixa.dataset.chaveFaixa);
+        }
+    }, true);
 }
 
 if (el.audio) {
@@ -930,7 +1243,8 @@ verificacaoHorario = setInterval(() => {
             throw new Error("O servidor não retornou o total de visitas.");
         }
 
-        elemento.textContent = Number(dados.total).toLocaleString("pt-BR");
+        elemento.textContent =
+            Number(dados.total).toLocaleString("pt-BR");
     } catch (erro) {
         console.error("Erro no contador de visitas:", erro);
         elemento.textContent = "Indisponível";
