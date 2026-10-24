@@ -1,4 +1,3 @@
-
 const API = {
     faixas: "/api/faixas-horarias",
     programas: "/api/programas"
@@ -296,7 +295,6 @@ function horarioValido(faixa) {
         return agora >= inicio && agora < fim;
     }
 
-    // Também permite programações que passam da meia-noite.
     return agora >= inicio || agora < fim;
 }
 
@@ -404,44 +402,30 @@ function idiomaPorTexto(valor, aceitarSiglas = false) {
         return "";
     }
 
-    // Nomes completos dos idiomas.
-    if (
-        /\b(portugues|portuguese)\b/.test(texto)
-    ) {
+    if (/\b(portugues|portuguese)\b/.test(texto)) {
         return "pt";
     }
 
-    if (
-        /\b(ingles|english)\b/.test(texto)
-    ) {
+    if (/\b(ingles|english)\b/.test(texto)) {
         return "en";
     }
 
-    if (
-        /\b(espanhol|spanish|espanol)\b/.test(texto)
-    ) {
+    if (/\b(espanhol|spanish|espanol)\b/.test(texto)) {
         return "es";
     }
 
-    if (
-        /\b(japones|japanese|nihongo)\b/.test(texto)
-    ) {
+    if (/\b(japones|japanese|nihongo)\b/.test(texto)) {
         return "ja";
     }
 
-    if (
-        /\b(alemao|german|deutsch)\b/.test(texto)
-    ) {
+    if (/\b(alemao|german|deutsch)\b/.test(texto)) {
         return "de";
     }
 
-    if (
-        /\b(frances|french)\b/.test(texto)
-    ) {
+    if (/\b(frances|french)\b/.test(texto)) {
         return "fr";
     }
 
-    // Siglas só são aceitas quando o valor é um código de idioma.
     if (aceitarSiglas) {
         const codigo = texto.replace(/_/g, "-");
 
@@ -459,13 +443,16 @@ function idiomaPorTexto(valor, aceitarSiglas = false) {
 function identificarIdioma(faixa) {
     const itens = obterListaDaFaixa(faixa);
 
-    // Campos de idioma explícitos têm prioridade.
     const idiomasInformados = [
         faixa.idioma,
         faixa.linguagem,
         ...itens.map(item => item.idioma),
         ...itens.map(item => item.linguagem)
-    ].filter(valor => valor !== null && valor !== undefined && String(valor).trim());
+    ].filter(valor =>
+        valor !== null &&
+        valor !== undefined &&
+        String(valor).trim()
+    );
 
     for (const idioma of idiomasInformados) {
         const identificado = idiomaPorTexto(idioma, true);
@@ -475,7 +462,6 @@ function identificarIdioma(faixa) {
         }
     }
 
-    // Se não houver idioma explícito, tenta identificar pelo conteúdo.
     const texto = [
         faixa.nome,
         faixa.descricao,
@@ -999,6 +985,13 @@ function renderizarProgramacao() {
         ({ faixa, indice }, posicao) => {
             const chave = chaveDaFaixa(faixa, indice);
 
+            // NOVO: identifica o idioma ensinado e sua bandeira.
+            const idiomaFaixa = identificarIdioma(faixa);
+
+            const bandeiraFaixa =
+                (IDIOMAS_RADIO[idiomaFaixa] || IDIOMAS_RADIO.outros)
+                    .bandeira;
+
             const aberta = faixasAbertas.has(chave) ||
                 (!acordeoesInicializados && posicao === 0);
 
@@ -1016,6 +1009,10 @@ function renderizarProgramacao() {
                         </span>
 
                         <span class="faixa-acordeao-titulo">
+                            <span
+                                class="faixa-acordeao-bandeira"
+                                aria-hidden="true"
+                            >${bandeiraFaixa}</span>
                             ${escapar(faixa.nome || "Programação")}
                         </span>
 
@@ -1152,7 +1149,6 @@ if (el.listaProgramacao) {
         renderizarProgramacao();
     });
 
-    // Guarda quais horários estão abertos.
     el.listaProgramacao.addEventListener("toggle", evento => {
         const faixa = evento.target;
 
