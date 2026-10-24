@@ -1107,4 +1107,284 @@ svg {
     font-variant-numeric: tabular-nums;
 }
 
+/* =========================================
+   AMAZON VOICES — ABAS DE IDIOMAS E HORÁRIOS
+========================================= */
+
+.abas-idiomas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.aba-idioma {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    min-height: 46px;
+    padding: 10px 15px;
+
+    color: var(--texto-secundario);
+    background: var(--fundo-secundario);
+
+    border: 1px solid var(--borda);
+    border-radius: 13px;
+
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+
+    transition:
+        background var(--transicao),
+        color var(--transicao),
+        border-color var(--transicao),
+        transform var(--transicao);
+}
+
+.aba-idioma:hover {
+    color: var(--texto);
+    border-color: var(--borda-destaque);
+    transform: translateY(-1px);
+}
+
+.aba-idioma.ativa {
+    color: var(--cor-principal);
+    background: var(--cor-principal-suave);
+    border-color: var(--borda-destaque);
+}
+
+.aba-idioma-bandeira {
+    font-size: 20px;
+    line-height: 1;
+}
+
+.aba-idioma-contagem {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 23px;
+    height: 23px;
+    padding: 0 6px;
+
+    color: var(--texto-secundario);
+    background: rgba(255, 255, 255, 0.06);
+
+    border-radius: 7px;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+}
+
+.aba-idioma.ativa .aba-idioma-contagem {
+    color: var(--cor-principal);
+    background: rgba(53, 208, 186, 0.12);
+}
+
+.lista-faixas-idioma {
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+}
+
+.faixa-acordeao {
+    overflow: hidden;
+
+    background: linear-gradient(
+        135deg,
+        rgba(21, 36, 58, 0.98),
+        rgba(17, 28, 48, 0.98)
+    );
+
+    border: 1px solid var(--borda);
+    border-radius: 15px;
+
+    transition:
+        border-color var(--transicao),
+        background var(--transicao);
+}
+
+.faixa-acordeao:hover,
+.faixa-acordeao[open] {
+    border-color: var(--borda-destaque);
+}
+
+.faixa-acordeao-cabecalho {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 15px;
+
+    min-height: 69px;
+    padding: 15px 19px;
+
+    list-style: none;
+    cursor: pointer;
+}
+
+.faixa-acordeao-cabecalho::-webkit-details-marker {
+    display: none;
+}
+
+.faixa-acordeao-horario {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+
+    padding: 7px 10px;
+
+    color: var(--cor-principal);
+    background: var(--cor-principal-suave);
+
+    border: 1px solid rgba(53, 208, 186, 0.15);
+    border-radius: 9px;
+
+    font-size: 12px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.faixa-acordeao-titulo {
+    min-width: 0;
+
+    color: var(--texto);
+    font-size: 14px;
+    font-weight: 750;
+    line-height: 1.45;
+
+    overflow-wrap: anywhere;
+}
+
+.faixa-acordeao-seta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 30px;
+    height: 30px;
+
+    color: var(--texto-secundario);
+    background: rgba(255, 255, 255, 0.045);
+
+    border-radius: 9px;
+    font-size: 21px;
+
+    transition:
+        transform var(--transicao),
+        color var(--transicao);
+}
+
+.faixa-acordeao[open] .faixa-acordeao-seta {
+    color: var(--cor-principal);
+    transform: rotate(180deg);
+}
+
+.faixa-acordeao-cabecalho:hover .faixa-acordeao-titulo {
+    color: var(--cor-principal);
+}
+
+.faixa-acordeao-corpo {
+    padding: 0 20px 21px;
+    border-top: 1px solid var(--borda);
+}
+
+.faixa-acordeao-corpo .faixa-resumo {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 17px;
+}
+
+.faixa-acordeao-corpo .faixa-resumo .item-programacao-horario {
+    display: none;
+}
+
+.faixa-resumo-dias {
+    color: var(--texto-fraco);
+    font-size: 11px;
+    font-weight: 650;
+}
+
+.faixa-acordeao-corpo .item-programacao-conteudo {
+    margin-top: 15px;
+}
+
+.faixa-acordeao-corpo .item-programacao-conteudo h3 {
+    font-size: 17px;
+}
+
+.faixa-acordeao-corpo .programas-da-faixa {
+    margin-top: 17px;
+}
+
+.faixa-acordeao-corpo .programa-da-faixa {
+    padding: 12px 14px;
+}
+
+.faixa-acordeao-corpo .materiais-pdf {
+    margin-top: 18px;
+}
+
+/* Celulares */
+@media (max-width: 520px) {
+    .abas-idiomas {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .aba-idioma {
+        justify-content: flex-start;
+        gap: 7px;
+        min-width: 0;
+        min-height: 45px;
+        padding: 9px 10px;
+        font-size: 12px;
+    }
+
+    .aba-idioma-bandeira {
+        font-size: 18px;
+    }
+
+    .aba-idioma-contagem {
+        min-width: 20px;
+        height: 20px;
+        margin-left: auto;
+        padding: 0 5px;
+    }
+
+    .faixa-acordeao {
+        border-radius: 13px;
+    }
+
+    .faixa-acordeao-cabecalho {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px 10px;
+        padding: 13px;
+    }
+
+    .faixa-acordeao-horario {
+        grid-column: 1;
+        justify-self: start;
+        font-size: 11px;
+    }
+
+    .faixa-acordeao-titulo {
+        grid-column: 1;
+        grid-row: 2;
+        font-size: 13px;
+    }
+
+    .faixa-acordeao-seta {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+    }
+
+    .faixa-acordeao-corpo {
+        padding: 0 13px 16px;
+    }
+}
+
 
