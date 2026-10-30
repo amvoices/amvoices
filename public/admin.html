@@ -161,10 +161,39 @@
       justify-content: space-between;
       align-items: center;
       gap: 10px;
+      min-width: 0;
+    }
+
+    .playlist-item-conteudo {
+      flex: 1;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .playlist-controles {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
     }
 
     .playlist-item button {
       flex-shrink: 0;
+      margin: 0;
+    }
+
+    button.botao-mover {
+      background: #40516b;
+      padding: 7px 11px;
+      min-width: 36px;
+      font-size: 18px;
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    button.botao-remover {
+      padding: 8px 10px;
+      font-size: 12px;
       margin: 0;
     }
 
@@ -191,7 +220,6 @@
       overflow-wrap: anywhere;
     }
 
-    /* Estatísticas de visitas */
     .estatisticas-visitas {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -251,7 +279,20 @@
       }
 
       .playlist-item {
-        align-items: flex-start;
+        align-items: center;
+      }
+
+      .playlist-controles {
+        gap: 4px;
+      }
+
+      button.botao-mover {
+        padding: 7px 9px;
+        min-width: 32px;
+      }
+
+      button.botao-remover {
+        padding: 7px 8px;
       }
 
       .estatisticas-visitas {
@@ -288,7 +329,6 @@
 
   <div id="painelAdmin" class="oculto">
 
-    <!-- NOVO: ESTATÍSTICAS DE VISITAS -->
     <section class="cartao" id="cartaoEstatisticasVisitas">
       <h2>Estatísticas de visitas</h2>
 
@@ -539,7 +579,7 @@ async function requisicao(url, opcoes = {}) {
   return dados;
 }
 
-/* NOVO: CARREGAR ESTATÍSTICAS DE VISITAS */
+/* ESTATÍSTICAS DE VISITAS */
 async function carregarEstatisticasVisitas() {
   const totalElemento = $("admin-total-visitas");
   const hojeElemento = $("admin-visitas-hoje");
@@ -715,6 +755,7 @@ async function carregarProgramas() {
   }
 }
 
+/* PLAYLIST NOVA: RENDERIZAÇÃO COM SETAS */
 function renderizarNovaPlaylist() {
   const recipiente = $("itensNovaPlaylist");
 
@@ -726,15 +767,38 @@ function renderizarNovaPlaylist() {
 
   recipiente.innerHTML = novaPlaylist.map((item, indice) => `
     <div class="playlist-item">
-      <span>
+      <div class="playlist-item-conteudo">
         ${indice + 1}. ${escapar(item.titulo)}
         ${item.pdfUrl ? " 📄 PDF" : ""}
-      </span>
-      <button
-        type="button"
-        class="perigo"
-        data-remover-novo="${indice}"
-      >Remover</button>
+      </div>
+
+      <div class="playlist-controles">
+        <button
+          type="button"
+          class="botao-mover"
+          data-mover-novo="${indice}"
+          data-direcao="-1"
+          aria-label="Mover áudio para cima"
+          title="Mover para cima"
+          ${indice === 0 ? "disabled" : ""}
+        >↑</button>
+
+        <button
+          type="button"
+          class="botao-mover"
+          data-mover-novo="${indice}"
+          data-direcao="1"
+          aria-label="Mover áudio para baixo"
+          title="Mover para baixo"
+          ${indice === novaPlaylist.length - 1 ? "disabled" : ""}
+        >↓</button>
+
+        <button
+          type="button"
+          class="perigo botao-remover"
+          data-remover-novo="${indice}"
+        >Remover</button>
+      </div>
     </div>
   `).join("");
 }
@@ -768,11 +832,41 @@ $("adicionarPrograma").addEventListener("click", () => {
   mensagem("mensagemFaixa", "");
 });
 
+/* PLAYLIST NOVA: MOVER E REMOVER */
 $("itensNovaPlaylist").addEventListener("click", (evento) => {
-  const botao = evento.target.closest("[data-remover-novo]");
-  if (!botao) return;
+  const mover = evento.target.closest("[data-mover-novo]");
 
-  novaPlaylist.splice(Number(botao.dataset.removerNovo), 1);
+  if (mover) {
+    const indice = Number(mover.dataset.moverNovo);
+    const direcao = Number(mover.dataset.direcao);
+    const destino = indice + direcao;
+
+    if (
+      indice < 0 ||
+      indice >= novaPlaylist.length ||
+      destino < 0 ||
+      destino >= novaPlaylist.length
+    ) {
+      return;
+    }
+
+    [
+      novaPlaylist[indice],
+      novaPlaylist[destino]
+    ] = [
+      novaPlaylist[destino],
+      novaPlaylist[indice]
+    ];
+
+    renderizarNovaPlaylist();
+    return;
+  }
+
+  const remover = evento.target.closest("[data-remover-novo]");
+
+  if (!remover) return;
+
+  novaPlaylist.splice(Number(remover.dataset.removerNovo), 1);
   renderizarNovaPlaylist();
 });
 
@@ -892,10 +986,10 @@ function renderizarFaixas() {
 
     const lista = playlist.map((item, indice) => `
       <div class="playlist-item">
-        <span>
+        <div class="playlist-item-conteudo">
           ${indice + 1}. ${escapar(item.titulo)}
           ${item.pdfUrl || item.pdf_url ? " 📄 PDF" : ""}
-        </span>
+        </div>
       </div>
     `).join("");
 
@@ -935,20 +1029,49 @@ function renderizarFaixas() {
           <hr class="separador">
           <h3>Editar playlist</h3>
           <p class="ajuda">
-            Remova os itens que desejar. Você também pode salvar
-            a playlist vazia para retirar todos os áudios.
+            Use as setas para mudar a ordem dos áudios.
+            Remova ou adicione programas e depois clique em
+            Salvar playlist para gravar as alterações.
           </p>
 
           <div data-itens-editor="${escapar(faixa.id)}">
             ${playlist.map((item, indice) => `
               <div class="playlist-item">
-                <span>${indice + 1}. ${escapar(item.titulo)}</span>
-                <button
-                  type="button"
-                  class="perigo"
-                  data-remover-editor="${escapar(faixa.id)}"
-                  data-indice="${indice}"
-                >Remover</button>
+                <div class="playlist-item-conteudo">
+                  ${indice + 1}. ${escapar(item.titulo)}
+                  ${item.pdfUrl || item.pdf_url ? " 📄 PDF" : ""}
+                </div>
+
+                <div class="playlist-controles">
+                  <button
+                    type="button"
+                    class="botao-mover"
+                    data-mover-editor="${escapar(faixa.id)}"
+                    data-indice="${indice}"
+                    data-direcao="-1"
+                    aria-label="Mover áudio para cima"
+                    title="Mover para cima"
+                    ${indice === 0 ? "disabled" : ""}
+                  >↑</button>
+
+                  <button
+                    type="button"
+                    class="botao-mover"
+                    data-mover-editor="${escapar(faixa.id)}"
+                    data-indice="${indice}"
+                    data-direcao="1"
+                    aria-label="Mover áudio para baixo"
+                    title="Mover para baixo"
+                    ${indice === playlist.length - 1 ? "disabled" : ""}
+                  >↓</button>
+
+                  <button
+                    type="button"
+                    class="perigo botao-remover"
+                    data-remover-editor="${escapar(faixa.id)}"
+                    data-indice="${indice}"
+                  >Remover</button>
+                </div>
               </div>
             `).join("")}
           </div>
@@ -989,11 +1112,49 @@ function renderizarFaixas() {
 }
 
 $("listaFaixas").addEventListener("click", async (evento) => {
+  const mover = evento.target.closest("[data-mover-editor]");
   const editar = evento.target.closest("[data-editar]");
   const excluir = evento.target.closest("[data-excluir]");
   const remover = evento.target.closest("[data-remover-editor]");
   const adicionar = evento.target.closest("[data-adicionar-editor]");
   const salvar = evento.target.closest("[data-salvar-editor]");
+
+  /* MOVER ÁUDIO NA PLAYLIST EXISTENTE */
+  if (mover) {
+    const id = String(mover.dataset.moverEditor);
+    const faixa = faixas.find((f) => String(f.id) === id);
+
+    if (!faixa) return;
+
+    const indice = Number(mover.dataset.indice);
+    const direcao = Number(mover.dataset.direcao);
+    const destino = indice + direcao;
+
+    const itens = Array.isArray(faixa.playlist)
+      ? [...faixa.playlist]
+      : [];
+
+    if (
+      indice < 0 ||
+      indice >= itens.length ||
+      destino < 0 ||
+      destino >= itens.length
+    ) {
+      return;
+    }
+
+    [
+      itens[indice],
+      itens[destino]
+    ] = [
+      itens[destino],
+      itens[indice]
+    ];
+
+    faixa.playlist = itens;
+    renderizarFaixas();
+    return;
+  }
 
   if (editar) {
     const id = String(editar.dataset.editar);
@@ -1143,7 +1304,6 @@ $("atualizarListas").addEventListener("click", async () => {
   }
 });
 
-/* NOVO: BOTÃO PARA ATUALIZAR AS ESTATÍSTICAS */
 $("admin-atualizar-visitas").addEventListener("click", () => {
   carregarEstatisticasVisitas();
 });
